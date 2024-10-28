@@ -11,9 +11,9 @@ C-LCRYPT encrypts files at the binary level, making data indecipherable without 
 
 ### Installation & Run Arch
 ```
-git clone https://github.com/Locotir/LCRYPT
-cd LCRYPT
+git clone https://github.com/Locotir/C-LCRYPT
+cd C-LCRYPT
 sudo pacman -Syu gcc openssl boost zlib zstd
-g++ -O3 -o LCRYPT LCRYPT.cpp -lssl -lcrypto -lz -lboost_iostreams -mavx2 -lzstd
-./LCRYPT
+g++ -O3 -o C-LCRYPT C-LCRYPT.cpp -lssl -lcrypto -lz -lboost_iostreams -mavx2 -lzstd
+./C-LCRYPT
 ```
