@@ -1,6 +1,6 @@
 ![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white) [![Visual Studio Code](https://img.shields.io/badge/Visual%20Studio%20Code-0078d7.svg?style=for-the-badge&logo=visual-studio-code&logoColor=white)](https://code.visualstudio.com) [![Arch](https://img.shields.io/badge/Arch%20Linux-1793D1?logo=arch-linux&logoColor=fff&style=for-the-badge)](https://archlinux.org) [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.me/locotir)
 # C-LCRYPT: Unbreakable Binary-Level Encryption
-**Remake of [LCRYPT](https://github.com/Locotir/LCRYPT) Python to C++ | Gained +99.68% performance | All I/O operations runs on RAM now **
+**Remake of [LCRYPT](https://github.com/Locotir/LCRYPT) Python to C++ | Gained +99.68% performance | All I/O operations runs on RAM now**
 
 In the digital age, securing data at its core is crucial. C-LCRYPT offers a revolutionary encryption solution that protects data at the binary level, ensuring integrity and confidentiality. Unauthorized access is impossible without the decryption keys.
 
