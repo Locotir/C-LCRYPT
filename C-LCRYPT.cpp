@@ -27,7 +27,7 @@
 #include <immintrin.h>                            // Includes definitions for AVX and SIMD operations (if supported).
 #include <zstd.h>                                 // Provides functions for data compression and decompression using the Zstandard library.
 #include <boost/iostreams/device/mapped_file.hpp> // Facilitates memory-mapped file I/O using the Boost Iostreams library.
-
+#include <sodium.h>                               // Provides functions for cryptographic operations, including password hashing and encryption, from the libsodium library.
 
 
 
@@ -124,7 +124,12 @@ namespace fs = std::filesystem;
 //=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=
 class LCRYPT {
 public:
-    LCRYPT(const std::string& hashedPassword) : password(hashedPassword) {}
+    LCRYPT(const std::string& hashedPassword) : password(hashedPassword) {
+        firstRound = hashPasswordRounds(password + password);
+        secondRound = hashPasswordRounds(firstRound + firstRound);
+        thirdRound = hashPasswordRounds(secondRound + secondRound);
+        fourthRound = hashPasswordRounds(thirdRound + thirdRound);
+    }
 
     void encrypt(const std::string& inputFile, int padding) {
         if (!checkMemoryRequirements(inputFile, padding)) {
@@ -157,24 +162,24 @@ public:
         // Shuffle each byte
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "@" << bcolors::WHITE << "]" << " Shuffling ~bytes";
         std::hash<std::string> hashFn;
-        size_t passwordHash = hashFn(password);
+        size_t passwordHash = hashFn(firstRound);
         shuffleBytes(binary, passwordHash); 
         //printBits(binary);
 
         // Padding *bit
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "*" << bcolors::WHITE << "]" << " Adding Padding *bit";
-        applyPadding(binary, padding, password); // Padding for each bit
+        applyPadding(binary, padding, secondRound); // Padding for each bit
         //printBits(binary);
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
-        auto substitutionTable = generateByteSubstitutionTable(password);
+        auto substitutionTable = generateByteSubstitutionTable(thirdRound);
         byteSubstitution(binary, substitutionTable);     
         //printBits(binary);
 
         // XOR Key
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "^" << bcolors::WHITE << "]" << " Applying XOR Key";
-        std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(password); 
+        std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
         //printBits(binary);
@@ -224,14 +229,14 @@ public:
 
         // XOR Key
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "^" << bcolors::WHITE << "]" << " Applying XOR Key";
-        std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(password); 
+        std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
         //printBits(binary);
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
-        auto substitutionTable = generateByteSubstitutionTable(password);
+        auto substitutionTable = generateByteSubstitutionTable(thirdRound);
         auto inverseTable = generateInverseSubstitutionTable(substitutionTable);
         byteSubstitutionDecrypt(binary, inverseTable);
         //printBits(binary);
@@ -244,7 +249,7 @@ public:
         // Unshuffle
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "@" << bcolors::WHITE << "]" << " Unshuffling inverted bytes";
         std::hash<std::string> hashFn;
-        size_t passwordHash = hashFn(password);
+        size_t passwordHash = hashFn(firstRound);
         reverseByteShuffle(binary, passwordHash);
         //printBits(binary);
 
@@ -277,6 +282,35 @@ public:
 
 private:
     std::string password;
+    std::string firstRound;
+    std::string secondRound;
+    std::string thirdRound;
+    std::string fourthRound;
+
+    // Argonnid hashing rounds
+    std::string hashPasswordRounds(const std::string& password) {
+        const size_t HASH_LEN = 32;  
+        const size_t OPS_LIMIT = crypto_pwhash_OPSLIMIT_INTERACTIVE; 
+        const size_t MEM_LIMIT = crypto_pwhash_MEMLIMIT_INTERACTIVE; 
+        const int ALG = crypto_pwhash_ALG_ARGON2ID13; 
+
+        unsigned char hash[HASH_LEN]; 
+
+        unsigned char salt[crypto_pwhash_SALTBYTES];
+        crypto_generichash(salt, sizeof(salt), reinterpret_cast<const unsigned char*>(password.c_str()), password.size(), nullptr, 0);
+
+        if (crypto_pwhash(hash, HASH_LEN, password.c_str(), password.size(), salt,
+                          OPS_LIMIT, MEM_LIMIT, ALG) != 0) {
+            throw std::runtime_error("Error: Not enough memory for hashing.");
+        }
+
+        std::ostringstream oss;
+        for (size_t i = 0; i < HASH_LEN; ++i) {
+            oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+        }
+
+        return oss.str(); 
+    }
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Print Bit Chain (debugging) ++++++++++++++++++++++++++++++++++++++++++++++++++++
     void printBits(const std::vector<uint8_t>& binary) {
@@ -725,21 +759,37 @@ void displayHashMaze(const std::string &hash) {
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ Manage CTL + C Exit +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 void signalHandler(int signum) {
     std::cout << bcolors::WHITE << "\n\n[" << bcolors::RED << "!" << bcolors::WHITE << "] ""Exiting...\n";
-    exit(0); // Salir del programa
+    exit(0); // Exit program
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ Hash Password +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 std::string hashPassword(const std::string& password) {
-    unsigned char hash[SHA256_DIGEST_LENGTH]; // SHA-256
-    SHA256(reinterpret_cast<const unsigned char*>(password.c_str()), password.size(), hash);
+    const size_t HASH_LEN = 32;  // Desired length of the final hash
+    const size_t OPS_LIMIT = crypto_pwhash_OPSLIMIT_INTERACTIVE; // Interactive limit for Argon2id operations
+    const size_t MEM_LIMIT = crypto_pwhash_MEMLIMIT_INTERACTIVE; // Interactive memory limit for Argon2id
+    const int ALG = crypto_pwhash_ALG_ARGON2ID13; // Algorithm version: Argon2id
 
-    // Hash to HEX
-    std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-        ss << std::setw(2) << std::setfill('0') << std::hex << static_cast<int>(hash[i]);
+    unsigned char hash[HASH_LEN]; // Buffer to hold the final Argon2id hash
+
+    // Derive a deterministic salt from the password
+    unsigned char salt[crypto_pwhash_SALTBYTES];
+    crypto_generichash(salt, sizeof(salt), reinterpret_cast<const unsigned char*>(password.c_str()), password.size(), nullptr, 0);
+
+    // Generate the Argon2id hash using the derived salt
+    if (crypto_pwhash(hash, HASH_LEN, password.c_str(), password.size(), salt,
+                      OPS_LIMIT, MEM_LIMIT, ALG) != 0) {
+        throw std::runtime_error("Error: Not enough memory for hashing.");
     }
-    return ss.str();
+
+    // Convert the final hash to a hexadecimal string
+    std::ostringstream oss;
+    for (size_t i = 0; i < HASH_LEN; ++i) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
+
+    return oss.str(); // Return the hex string representation of the hash
 }
+
 
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ Display  Help Message +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -894,7 +944,7 @@ int main(int argc, char *argv[]) {
         } else if (option == 2) {
             lcrypt.decrypt(inputFile, padding);
         } else {
-            std::cerr << "Opción no válida." << std::endl;
+            std::cerr << "No valid option." << std::endl;
             return 1;
         }
     }
