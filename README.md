@@ -2,6 +2,7 @@
 # C-LCRYPT: Unbreakable Binary-Level Encryption
 **=== Remake of [LCRYPT](https://github.com/Locotir/LCRYPT) on C++ | Gained +99.68% performance | All I/O operations runs on RAM now ===**
 
+
 In the digital age, securing data at its core is crucial. C-LCRYPT offers a revolutionary encryption solution that protects data at the binary level, ensuring integrity and confidentiality. Unauthorized access is impossible without the decryption keys.
 
 ### Description
