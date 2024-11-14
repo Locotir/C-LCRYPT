@@ -31,7 +31,7 @@
 
 
 
-// Color codes class
+// ++++++++++++++++++++++++++++++++++++++++++++++++++++ Color codes class ++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 class bcolors {
 public:
     static const std::string PURPLE;
@@ -59,9 +59,10 @@ const std::string bcolors::ORANGE = "\033[38;5;208m";
 const std::string bcolors::VIOLET = "\033[38;5;135m";
 const std::string bcolors::BLACK = "\033[30m";   
 const std::string RESET = "\033[0m";
+// --------------------------------------------------------------------------------------------------------------------------------------
 
 
-
+// ++++++++++++++++++++++++++++++++++++++++++++++++++++ MEMORY CHECKING ++++++++++++++++++++++++++++++++++++++++++++++++++++
 long getAvailableRAM() {
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
@@ -87,18 +88,27 @@ bool checkMemoryRequirements(const std::string& filename, int padding) {
     
     return true; // Enough RAM
 }
+// --------------------------------------------------------------------------------------------------------------------------------------
 
+
+// ++++++++++++++++++++++++++++++++++++++++++++++++++++ BACKUP FILE BEFORE DECRYPT ++++++++++++++++++++++++++++++++++++++++++++++++++++
 void backup(const std::string& inputFile) {
     std::string backupFile = inputFile + ".backup";
-    // Open for reading
+    const size_t bufferSize = 8192; // Buffer size
+
     std::ifstream src(inputFile, std::ios::binary);
-    // Open for writing
     std::ofstream dst(backupFile, std::ios::binary);
 
-    // Copy content
-    dst << src.rdbuf();
-}
+    std::vector<char> buffer(bufferSize);
+    while (src.read(buffer.data(), buffer.size())) {
+        dst.write(buffer.data(), src.gcount());
+    }
 
+    dst.write(buffer.data(), src.gcount());
+}
+// --------------------------------------------------------------------------------------------------------------------------------------
+
+// -=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=-
 class Xorshift {
 public:
     Xorshift(double seed) {
@@ -116,7 +126,7 @@ public:
 private:
     uint32_t state;
 };
-
+// -=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=-
 
 namespace fs = std::filesystem;
 
@@ -157,32 +167,32 @@ public:
         std::cout << std::fixed << std::setprecision(3);
         std::cout << "\n    ↳ Loaded file in " << loadDuration / 1000.0 << " ms at " 
                 << loadSpeedGBps << " GB/s";
-        //printBits(binary);
+        
 
         // Shuffle each byte
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "@" << bcolors::WHITE << "]" << " Shuffling ~bytes";
         std::hash<std::string> hashFn;
         size_t passwordHash = hashFn(firstRound);
         shuffleBytes(binary, passwordHash); 
-        //printBits(binary);
+        
 
         // Padding *bit
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "*" << bcolors::WHITE << "]" << " Adding Padding *bit";
         applyPadding(binary, padding, secondRound); // Padding for each bit
-        //printBits(binary);
+        
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
         auto substitutionTable = generateByteSubstitutionTable(thirdRound);
         byteSubstitution(binary, substitutionTable);     
-        //printBits(binary);
+        
 
         // XOR Key
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "^" << bcolors::WHITE << "]" << " Applying XOR Key";
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
-        //printBits(binary);
+        
 
         // Finish & save
         saveToFile(inputFile, binary);
@@ -225,33 +235,33 @@ public:
         std::cout << std::fixed << std::setprecision(3);
         std::cout << "\n    ↳ Loaded file in " << loadDuration / 1000.0 << " ms at " 
                 << loadSpeedGBps << " GB/s";
-        //printBits(binary);
+        
 
         // XOR Key
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "^" << bcolors::WHITE << "]" << " Applying XOR Key";
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
-        //printBits(binary);
+        
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
         auto substitutionTable = generateByteSubstitutionTable(thirdRound);
         auto inverseTable = generateInverseSubstitutionTable(substitutionTable);
         byteSubstitutionDecrypt(binary, inverseTable);
-        //printBits(binary);
+        
 
         // Padding *bit
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "*" << bcolors::WHITE << "]" << " Removing Padding *bit";
         removePadding(binary, padding);
-        //printBits(binary);
+        
 
         // Unshuffle
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "@" << bcolors::WHITE << "]" << " Unshuffling inverted bytes";
         std::hash<std::string> hashFn;
         size_t passwordHash = hashFn(firstRound);
         reverseByteShuffle(binary, passwordHash);
-        //printBits(binary);
+        
 
         // Save to decompress
         saveToFile(inputFile, binary);
@@ -367,16 +377,17 @@ private:
     }
 
     void compressFile(const std::string& inputFile) {
-        auto originalSize = fs::file_size(inputFile);
 
         if (!fs::exists(inputFile) || (fs::is_directory(inputFile) && fs::is_empty(inputFile))) return;
 
         std::string tarFile = inputFile + ".tar";
         std::string zstdFile = inputFile + ".zst";
 
-        std::string tarCommand = "tar -czf " + tarFile + " " + inputFile;
+        std::string tarCommand = "tar -cf " + tarFile + " " + inputFile;
         if (std::system(tarCommand.c_str()) != 0 || !fs::exists(tarFile)) return;
 
+        auto originalSize = fs::file_size(inputFile+".tar");
+        
         std::vector<char> fileData = readFile(tarFile);
         size_t compressedSize = ZSTD_compressBound(fileData.size());
         std::vector<char> compressedData(compressedSize);
@@ -420,7 +431,7 @@ private:
             if (outputDir.empty()) outputDir = fs::current_path().string();
             if (!outputDir.empty() && !fs::exists(outputDir)) fs::create_directories(outputDir);
 
-            std::string untarCommand = "tar -xzf " + tarFile;
+            std::string untarCommand = "tar -xf " + tarFile;
             std::system(untarCommand.c_str());
             fs::remove(tarFile);
         } catch (...) {
@@ -918,12 +929,6 @@ int main(int argc, char *argv[]) {
             return (show_help) ? 0 : 1;
         }
 
-        std::string hashedPassword = hashPassword(password);
-        std::cout << bcolors::ORANGE;
-        displayHashMaze(hashedPassword);
-
-        LCRYPT lcrypt(hashedPassword); // Create LCRYPT object with passwd
-
 
         // Check if the file exists 
         std::ifstream file(inputFile);
@@ -933,10 +938,11 @@ int main(int argc, char *argv[]) {
         }
         file.close();
 
+        std::string hashedPassword = hashPassword(password);
+        std::cout << bcolors::ORANGE;
+        displayHashMaze(hashedPassword);
 
-        // Clear any leftover input in case of input errors
-        std::cin.clear();
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        LCRYPT lcrypt(hashedPassword); // Create LCRYPT object with passwd
 
 
         if (option == 1) {
