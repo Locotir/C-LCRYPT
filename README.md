@@ -15,7 +15,7 @@ C-LCRYPT encrypts files at the binary level, making data indecipherable without 
 git clone https://github.com/Locotir/C-LCRYPT
 cd C-LCRYPT
 sudo pacman -Syu gcc openssl boost zlib zstd libsodium
-g++ -O3 -o C-LCRYPT C-LCRYPT.cpp -lssl -lcrypto -lz -lboost_iostreams -mavx2 -lzstd -lsodium
+g++ -O3 -pipe -fno-plt -o C-LCRYPT C-LCRYPT.cpp -lssl -lcrypto -lz -lboost_iostreams -mavx2 -lzstd -lsodium
 ./C-LCRYPT
 ```
 
