@@ -807,14 +807,14 @@ std::string hashPassword(const std::string& password) {
 void showHelp() {
     std::cout << "Usage: ./LCRYPT [options]\n"
               << "Options:\n"
-              << "  -e <file>         Encrypt the specified file\n"
-              << "  -d <file>         Decrypt the specified file\n"
+              << "  -e <target>       Encrypt the specified file/folder\n"
+              << "  -d <target>       Decrypt the specified file/folder\n"
               << "  -p <padding>      Specify the padding (0-∞)\n"
               << "  -P <password>     Specify the password\n"
               << "  -h                Display this help message\n"
               << "Examples:\n"
-              << "  ./LCRYPT -e file -p 10 -P my_password\n"
-              << "  ./LCRYPT -d file -p 10 -P my_password\n\n" 
+              << "  ./LCRYPT -e target -p 10 -P my_password\n"
+              << "  ./LCRYPT -d target -p 10 -P my_password\n\n" 
               << bcolors::GREEN << "If executed without arguments, interactive mode will start." << std::endl;
 } 
 
