@@ -23,14 +23,14 @@ g++ -O3 -pipe -fno-plt -o C-LCRYPT C-LCRYPT.cpp -lssl -lcrypto -lz -lboost_iostr
 ```
 Usage: ./LCRYPT [options]
 Options:
-  -e <file>         Encrypt the specified file
-  -d <file>         Decrypt the specified file
+  -e <target>       Encrypt the specified file/folder
+  -d <target>       Decrypt the specified file/folder
   -p <padding>      Specify the padding (0-∞)
   -P <password>     Specify the password
   -h                Display this help message
 Examples:
-  ./LCRYPT -e file -p 10 -P my_password
-  ./LCRYPT -d file -p 10 -P my_password
+  ./LCRYPT -e target -p 10 -P my_password
+  ./LCRYPT -d target -p 10 -P my_password
 
 If executed without arguments, interactive mode will start.
 ```
