@@ -21,7 +21,7 @@ g++ -O3 -march=native -mtune=native -pipe -flto -funroll-loops -fomit-frame-poin
 
 ### Execution Parameters
 ```
-Usage: ./LCRYPT [options]
+Usage: ./C-LCRYPT [options]
 Options:
   -e <target>       Encrypt the specified file/folder
   -d <target>       Decrypt the specified file/folder
@@ -29,8 +29,8 @@ Options:
   -P <password>     Specify the password
   -h                Display this help message
 Examples:
-  ./LCRYPT -e target -p 10 -P my_password
-  ./LCRYPT -d target -p 10 -P my_password
+  ./C-LCRYPT -e target -p 10 -P my_password
+  ./C-LCRYPT -d target -p 10 -P my_password
 
 If executed without arguments, interactive mode will start.
 ```
