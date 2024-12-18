@@ -811,6 +811,7 @@ void showHelp() {
               << "  -d <target>       Decrypt the specified file/folder\n"
               << "  -p <padding>      Specify the padding (0-∞)\n"
               << "  -P <password>     Specify the password\n"
+              << "  --version         Show the current installed version\n"
               << "  -h                Display this help message\n"
               << "Examples:\n"
               << "  ./LCRYPT -e target -p 10 -P my_password\n"
