@@ -10,13 +10,18 @@ C-LCRYPT encrypts files at the binary level, making data indecipherable without 
 
 **Disclaimer**: This tool does not leave any identifiable signature or trace that could be linked back to the tool or its author. The resulting encryption cannot be analyzed or reverse-engineered to understand the algorithm's nature without access to the program's source code.
 
-### Installation & Run Arch
+### Installation & Run
 ```
 git clone https://github.com/Locotir/C-LCRYPT
 cd C-LCRYPT
 sudo pacman -Syu gcc openssl boost zlib zstd libsodium
 g++ -O3 -march=native -mtune=native -pipe -flto -funroll-loops -fomit-frame-pointer -fno-plt -ffast-math -o C-LCRYPT C-LCRYPT.cpp -lssl -lcrypto -lz -lboost_iostreams -lzstd -lsodium
 ./C-LCRYPT
+```
+
+### AUR Arch
+```
+yay -S c-lcrypt
 ```
 
 ### Execution Parameters
