@@ -907,7 +907,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        while ((opt = getopt(argc, argv, "e:d:p:P:--version:h")) != -1) {
+        while ((opt = getopt(argc, argv, "e:d:p:P:h")) != -1) {
             switch (opt) {
                 case 'e': // Encrypt
                     option = 1;
