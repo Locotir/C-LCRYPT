@@ -32,6 +32,7 @@ Options:
   -d <target>       Decrypt the specified file/folder
   -p <padding>      Specify the padding (0-∞)
   -P <password>     Specify the password
+  --version         Show the current installed version
   -h                Display this help message
 Examples:
   ./C-LCRYPT -e target -p 10 -P my_password
