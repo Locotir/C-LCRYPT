@@ -29,7 +29,7 @@
 #include <boost/iostreams/device/mapped_file.hpp> // Facilitates memory-mapped file I/O using the Boost Iostreams library.
 #include <sodium.h>                               // Provides functions for cryptographic operations, including password hashing and encryption, from the libsodium library.
 
-
+std::string VERSION = "C-LCRYPT version: v1.0.0\n"; 
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Color codes class ++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 class bcolors {
@@ -898,7 +898,16 @@ int main(int argc, char *argv[]) {
         int opt;
         bool show_help = false;
 
-        while ((opt = getopt(argc, argv, "e:d:p:P:h")) != -1) {
+        // Process larger argument
+        if (optind < argc) {
+            std::string arg = argv[optind];
+            if (arg == "--version") {
+                std::cout << VERSION;
+                exit(0);
+            }
+        }
+
+        while ((opt = getopt(argc, argv, "e:d:p:P:--version:h")) != -1) {
             switch (opt) {
                 case 'e': // Encrypt
                     option = 1;
@@ -913,7 +922,7 @@ int main(int argc, char *argv[]) {
                     break;
                 case 'P': // Passwd
                     password = optarg;
-                    break;
+                    break;                    
                 case 'h': // Show help
                     show_help = true;
                     break;
