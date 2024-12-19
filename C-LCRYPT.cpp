@@ -62,7 +62,7 @@ const std::string RESET = "\033[0m";
 // --------------------------------------------------------------------------------------------------------------------------------------
 
 
-// ++++++++++++++++++++++++++++++++++++++++++++++++++++ MEMORY CHECKING ++++++++++++++++++++++++++++++++++++++++++++++++++++
+// ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ MEMORY CHECKING ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 long getAvailableRAM() {
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
@@ -78,7 +78,7 @@ bool checkMemoryRequirements(const std::string& filename, int padding) {
     long fileSize = file.tellg(); // Get file size
     file.close();
 
-    long requiredMemory = fileSize * (1 + (padding + 1) * 2) + 500 * 1024 * 1024; // Memory required + 500 MB
+    long requiredMemory = fileSize * (1 + (padding + 1) * 2) + 100 * 1024 * 1024; // Memory required + 500 MB
     long availableMemory = getAvailableRAM(); // Memmory aviable
 
     if (requiredMemory > availableMemory) {
@@ -90,6 +90,115 @@ bool checkMemoryRequirements(const std::string& filename, int padding) {
 }
 // --------------------------------------------------------------------------------------------------------------------------------------
 
+
+// ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ PROCESS SPLIT FILES ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// Split a file into parts
+std::vector<std::string> splitFile(const std::string& filename, long partSize) {
+    std::vector<std::string> partFiles;
+
+    // Form and execute the split command
+    std::string command = "split -b " + std::to_string(partSize) + " " + filename + " " + filename + "_part_";
+    if (std::system(command.c_str()) != 0) {
+        std::cerr << "Failed to execute split command: " << command << std::endl;
+        return partFiles;
+    }
+
+    // Collect the names of the split files
+    for (char suffix1 = 'a'; suffix1 <= 'z'; ++suffix1) {
+        for (char suffix2 = 'a'; suffix2 <= 'z'; ++suffix2) {
+            std::string partFilename = filename + "_part_" + suffix1 + suffix2;
+            std::ifstream partFile(partFilename);
+            if (!partFile) break;
+            partFiles.push_back(partFilename);
+        }
+    }
+
+    return partFiles;
+}
+
+// Get the path of the executable
+std::string getExecutablePath() {
+    char exePath[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (len != -1) {
+        exePath[len] = '\0'; // Null-terminate the path
+        return std::string(exePath);
+    } else {
+        std::cerr << "Error getting executable path" << std::endl;
+        return "";
+    }
+}
+
+// Encrypt or decrypt files using the executable externally
+void processFiles(const std::vector<std::string>& files, const std::string& password, int padding, bool encrypt) {
+    std::string exePath = getExecutablePath();
+    if (exePath.empty()) return;
+
+    std::string exeDir = exePath.substr(0, exePath.find_last_of("/"));
+    std::string exeName = exePath.substr(exePath.find_last_of("/") + 1);
+    std::string commandBase = exeDir + "/" + exeName + (encrypt ? " -e " : " -d ");
+
+    for (const auto& file : files) {
+        std::string command = commandBase + file + " -p " + std::to_string(padding) + " -P " + password + " &> /dev/null";
+        std::cout << bcolors::WHITE << " [" << bcolors::GREEN <<  "$" << bcolors::WHITE << "]" << (encrypt ? " Encrypting " : " Decrypting ") << "part: " << file << std::endl;
+        if (std::system(command.c_str()) != 0) {
+            std::cerr << "Failed to execute command: " << command << std::endl;
+            break; // Stop if any part fails to process
+        }
+    }
+}
+
+// Archive the split files into a single tar file
+void archiveFiles(const std::vector<std::string>& files, const std::string& inputFile) {
+    std::string archiveName = inputFile + ".tar";
+    std::string command = "tar -cf " + archiveName;
+    for (const auto& file : files) {
+        command += " " + file;
+    }
+
+    if (std::system(command.c_str()) != 0) {
+        std::cerr << "Failed to create tar archive: " << archiveName << std::endl;
+        return;
+    }
+
+    // Remove the part files
+    for (const auto& file : files) {
+        std::remove(file.c_str());
+    }
+
+    // Rename the .tar archive to the original input file name
+    std::rename(archiveName.c_str(), inputFile.c_str());
+}
+
+// Extract the split files from a tar archive
+void extractFiles(const std::string& inputFile) {
+    std::string archiveName = inputFile + ".tar";
+    std::rename(inputFile.c_str(), archiveName.c_str());
+
+    std::string command = "tar -xf " + archiveName;
+    if (std::system(command.c_str()) != 0) {
+        std::cerr << "Failed to extract tar archive: " << archiveName << std::endl;
+    }
+
+    std::rename(archiveName.c_str(), inputFile.c_str());
+}
+
+// Verify if a file was split into parts
+bool containsPartTag(const std::string& filename) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "Failed to open file: " << filename << std::endl;
+        return false;
+    }
+
+    const size_t bufferSize = 512;
+    char buffer[bufferSize] = {0};
+    file.read(buffer, bufferSize);
+    file.close();
+
+    return std::string(buffer, file.gcount()).find("_part_") != std::string::npos;
+}
+// --------------------------------------------------------------------------------------------------------------------------------------
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ BACKUP FILE BEFORE DECRYPT ++++++++++++++++++++++++++++++++++++++++++++++++++++
 void backup(const std::string& inputFile) {
@@ -142,10 +251,35 @@ public:
     }
 
     void encrypt(const std::string& inputFile, int padding) {
+        // Check if the file can be encrypted in a single pass
         if (!checkMemoryRequirements(inputFile, padding)) {
-            return; // Exit if not enough RAM
-        }        
+            std::ifstream file(inputFile, std::ios::binary | std::ios::ate);
+            long fileSize = file.tellg();
+            file.close();
 
+            long availableMemory = getAvailableRAM();
+            long requiredMemory = fileSize * (1 + (padding + 1) * 2) + 500 * 1024 * 1024;
+            int numberOfParts = (requiredMemory + availableMemory - 1) / availableMemory; // Calculate the number of parts required
+            long partSize = (fileSize + numberOfParts - 1) / numberOfParts; // Calculate the size of each part
+
+            if (partSize <= 0) partSize = 1; // Ensure partSize is positive
+
+            std::vector<std::string> partFiles = splitFile(inputFile, partSize); // Split the file into parts
+
+            std::cout << bcolors::WHITE << " [" << bcolors::RED << "||" << bcolors::WHITE << "]"
+                    << " File split into " << partFiles.size() << " parts due to insufficient RAM" << std::endl;
+
+            processFiles(partFiles, password, padding, true); // Encrypt the parts
+
+            archiveFiles(partFiles, inputFile); // Archive the encrypted parts into a single tar file
+
+            std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]"
+                    << " Encrypted file saved as: " << inputFile << std::endl;
+
+            exit(0); // Exit after encrypting the parts
+        }
+
+        // Continue with the nornal encryption process
         // Comprenssion
         std::cout << bcolors::WHITE << "\n\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Compressing..." << std::endl;
         compressFile(inputFile); // Compress file/folder
@@ -210,9 +344,60 @@ public:
     }
 
     void decrypt(const std::string& inputFile, int padding) {
-        if (!checkMemoryRequirements(inputFile, padding)) {
-            return; // Exit if not enough RAM
-        }        
+        // Check if the file was split into parts
+        if (containsPartTag(inputFile)) {
+            backup(inputFile); // Save backup file in case of failure
+
+            std::cout << bcolors::YELLOW << "! The file was split due to insufficient RAM during encryption process." << std::endl;
+            extractFiles(inputFile);
+
+            // Collect the names of the split files
+            std::vector<std::string> partFiles;
+            for (char suffix1 = 'a'; suffix1 <= 'z'; ++suffix1) {
+                for (char suffix2 = 'a'; suffix2 <= 'z'; ++suffix2) {
+                    std::string partFilename = inputFile + "_part_" + suffix1 + suffix2;
+                    std::ifstream partFile(partFilename);
+                    if (!partFile) break;
+                    partFiles.push_back(partFilename);
+                }
+            }
+
+            // Decrypt the parts
+            processFiles(partFiles, password, padding, false);
+
+            // Concatenate the decrypted parts into a single file
+            std::ofstream output(inputFile, std::ios::binary);
+            if (!output) {
+                std::cerr << "Failed to open output file: " << inputFile << std::endl;
+                return;
+            }
+
+            for (const auto& file : partFiles) {
+                std::ifstream input(file, std::ios::binary);
+                if (!input) {
+                    std::cerr << "Failed to open input file: " << file << std::endl;
+                    continue;
+                }
+                output << input.rdbuf();
+                input.close();
+            }
+            output.close();
+
+            // Remove the part files
+            for (const auto& file : partFiles) {
+                std::remove(file.c_str());
+            }
+
+            std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "] Decrypted file saved as: " << inputFile << std::endl;
+
+            // Delete backup file
+            std::string backupFile = inputFile + ".backup";
+            std::remove(backupFile.c_str());
+
+            exit(0); // Exit after decrypting the parts
+        }
+
+        // Continue with the normal decryption process
         auto start = std::chrono::high_resolution_clock::now(); // Start timer
         auto fileSize = fs::file_size(inputFile);
         backup(inputFile); // Save backup file in case of failure
