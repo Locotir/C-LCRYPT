@@ -669,23 +669,19 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
 
     // Function to remove padding from binary data
     void removePadding(std::vector<uint8_t>& binaryData, int padding) {
-        // If padding is negative, return immediately as padding cannot be negative
-        if (padding < 0) return;
+        // If padding is negative or zero, return immediately as padding cannot be negative or zero
+        if (padding <= 0) return;
 
         size_t totalBits = binaryData.size() * 8;
-        
-        // Calculate the original size of the data before padding was applied
         size_t originalSize = totalBits / (padding + 1);
-        // Create a new vector to hold the original data, ensuring it has enough space
         std::vector<uint8_t> originalData((originalSize + 7) / 8, 0);
-        // Initialize indices for accessing bits in binaryData and originalData
+
         size_t index = 0, originalIndex = 0;
 
-        // Loop until all bits in the binaryData have been processed
         while (index < totalBits) {
             // Skip over the padding bits by incrementing the index by the padding size
-            index += padding; 
-            
+            index += padding;
+
             if (index >= totalBits) break;
 
             // Read the corresponding bit from the binaryData
@@ -697,7 +693,7 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
             originalIndex++;
             index++;
         }
-        
+
         // Swap the original data back into binaryData, replacing the padded data
         binaryData.swap(originalData);
     }
