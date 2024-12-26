@@ -324,8 +324,9 @@ public:
         std::cout << bcolors::WHITE << "\n[" << bcolors::ORANGE << "~" << bcolors::WHITE << "]" << " Loading File to RAM";
         std::size_t size;
         auto loadStart = std::chrono::high_resolution_clock::now(); 
+
         std::vector<uint8_t> binary = loadFileAsBits(inputFile); // Load file in RAM
-        printBits(binary);
+
         auto loadEnd = std::chrono::high_resolution_clock::now();
         auto loadDuration = std::chrono::duration_cast<std::chrono::microseconds>(loadEnd - loadStart).count(); // in microseconds
         double fileSizeGB = fileSize / (1024.0 * 1024.0 * 1024.0); // Size en GB
@@ -342,20 +343,17 @@ public:
         std::hash<std::string> hashFn;
         size_t passwordHash = hashFn(firstRound);
         shuffleBytes(binary, passwordHash);
-        printBits(binary); 
         
 
         // Padding *bit
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "*" << bcolors::WHITE << "]" << " Adding Padding *bit";
         applyPadding(binary, padding, secondRound); // Padding for each bit
-        printBits(binary);
         
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
         auto substitutionTable = generateByteSubstitutionTable(thirdRound);
         byteSubstitution(binary, substitutionTable);
-        printBits(binary);
         
 
         // XOR Key
@@ -363,7 +361,6 @@ public:
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
-        printBits(binary);
 
         // Finish & save
         saveToFile(inputFile, binary);
@@ -447,7 +444,6 @@ public:
 
         // Load file in RAM
         std::vector<uint8_t> binary = loadFileAsBits(inputFile);
-        printBits(binary); 
 
         auto loadEnd = std::chrono::high_resolution_clock::now();
         auto loadDuration = std::chrono::duration_cast<std::chrono::microseconds>(loadEnd - loadStart).count(); // in microseconds
@@ -465,7 +461,6 @@ public:
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
-        printBits(binary);
         
 
         // Byte to Table byte reference
@@ -473,13 +468,11 @@ public:
         auto substitutionTable = generateByteSubstitutionTable(thirdRound);
         auto inverseTable = generateInverseSubstitutionTable(substitutionTable);
         byteSubstitutionDecrypt(binary, inverseTable);
-        printBits(binary);
         
 
         // Padding *bit
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "*" << bcolors::WHITE << "]" << " Removing Padding *bit";
         removePadding(binary, padding);
-        printBits(binary);
         
 
         // Unshuffle
@@ -487,7 +480,6 @@ public:
         std::hash<std::string> hashFn;
         size_t passwordHash = hashFn(firstRound);
         reverseByteShuffle(binary, passwordHash);
-        printBits(binary);
         
 
         // Save to decompress
