@@ -626,7 +626,7 @@ private:
         std::string zstdFile = fileName + ".zst";
 
         std::string tarCommand = "tar -cf " + tarFile + " " + fileName;
-        std::cout << "COMMAND: " << tarCommand; 
+        
         if (std::system(tarCommand.c_str()) != 0 || !fs::exists(tarFile)) {
             fs::current_path(currentPath); // Restore the original working directory
             return;
