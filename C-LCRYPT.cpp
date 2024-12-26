@@ -29,7 +29,7 @@
 #include <boost/iostreams/device/mapped_file.hpp> // Facilitates memory-mapped file I/O using the Boost Iostreams library.
 #include <sodium.h>                               // Provides functions for cryptographic operations, including password hashing and encryption, from the libsodium library.
 
-#define VERSION "v1.5.0\n"
+#define VERSION "v2.0.0\n"
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Color codes class ++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 class bcolors {
@@ -150,14 +150,30 @@ void processFiles(const std::vector<std::string>& files, const std::string& pass
 
 // Archive the split files into a single tar file
 void archiveFiles(const std::vector<std::string>& files, const std::string& inputFile) {
-    std::string archiveName = inputFile + ".tar";
+    // Extract directory and file name from inputFile
+    std::filesystem::path inputPath(inputFile);
+    std::string directory = inputPath.parent_path().string();
+    std::string fileName = inputPath.filename().string();
+
+    // Save the current working directory
+    auto currentPath = std::filesystem::current_path();
+
+    // Change to the directory where the files are located
+    std::filesystem::current_path(directory);
+
+    // Create the tar command
+    std::string archiveName = fileName + ".tar";
     std::string command = "tar -cf " + archiveName;
     for (const auto& file : files) {
-        command += " " + file;
+        std::filesystem::path filePath(file);
+        command += " " + filePath.filename().string();
     }
 
+    // Execute the tar command
     if (std::system(command.c_str()) != 0) {
         std::cerr << "Failed to create tar archive: " << archiveName << std::endl;
+        // Change back to the original working directory
+        std::filesystem::current_path(currentPath);
         return;
     }
 
@@ -167,20 +183,37 @@ void archiveFiles(const std::vector<std::string>& files, const std::string& inpu
     }
 
     // Rename the .tar archive to the original input file name
-    std::rename(archiveName.c_str(), inputFile.c_str());
+    std::rename(archiveName.c_str(), fileName.c_str());
+
+    // Change back to the original working directory
+    std::filesystem::current_path(currentPath);
 }
 
 // Extract the split files from a tar archive
 void extractFiles(const std::string& inputFile) {
-    std::string archiveName = inputFile + ".tar";
-    std::rename(inputFile.c_str(), archiveName.c_str());
+    // Extract directory and file name from inputFile
+    std::filesystem::path inputPath(inputFile);
+    std::string directory = inputPath.parent_path().string();
+    std::string fileName = inputPath.filename().string();
+
+    // Save the current working directory
+    auto currentPath = std::filesystem::current_path();
+
+    // Change to the directory where the files are located
+    std::filesystem::current_path(directory);
+
+    std::string archiveName = fileName + ".tar";
+    std::rename(fileName.c_str(), archiveName.c_str());
 
     std::string command = "tar -xf " + archiveName;
     if (std::system(command.c_str()) != 0) {
         std::cerr << "Failed to extract tar archive: " << archiveName << std::endl;
     }
 
-    std::rename(archiveName.c_str(), inputFile.c_str());
+    std::rename(archiveName.c_str(), fileName.c_str());
+
+    // Change back to the original working directory
+    std::filesystem::current_path(currentPath);
 }
 
 // Verify if a file was split into parts
@@ -292,6 +325,7 @@ public:
         std::size_t size;
         auto loadStart = std::chrono::high_resolution_clock::now(); 
         std::vector<uint8_t> binary = loadFileAsBits(inputFile); // Load file in RAM
+        printBits(binary);
         auto loadEnd = std::chrono::high_resolution_clock::now();
         auto loadDuration = std::chrono::duration_cast<std::chrono::microseconds>(loadEnd - loadStart).count(); // in microseconds
         double fileSizeGB = fileSize / (1024.0 * 1024.0 * 1024.0); // Size en GB
@@ -307,18 +341,21 @@ public:
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "@" << bcolors::WHITE << "]" << " Shuffling ~bytes";
         std::hash<std::string> hashFn;
         size_t passwordHash = hashFn(firstRound);
-        shuffleBytes(binary, passwordHash); 
+        shuffleBytes(binary, passwordHash);
+        printBits(binary); 
         
 
         // Padding *bit
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "*" << bcolors::WHITE << "]" << " Adding Padding *bit";
         applyPadding(binary, padding, secondRound); // Padding for each bit
+        printBits(binary);
         
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
         auto substitutionTable = generateByteSubstitutionTable(thirdRound);
-        byteSubstitution(binary, substitutionTable);     
+        byteSubstitution(binary, substitutionTable);
+        printBits(binary);
         
 
         // XOR Key
@@ -326,7 +363,7 @@ public:
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
-        
+        printBits(binary);
 
         // Finish & save
         saveToFile(inputFile, binary);
@@ -409,7 +446,8 @@ public:
         auto loadStart = std::chrono::high_resolution_clock::now(); 
 
         // Load file in RAM
-        std::vector<uint8_t> binary = loadFileAsBits(inputFile); 
+        std::vector<uint8_t> binary = loadFileAsBits(inputFile);
+        printBits(binary); 
 
         auto loadEnd = std::chrono::high_resolution_clock::now();
         auto loadDuration = std::chrono::duration_cast<std::chrono::microseconds>(loadEnd - loadStart).count(); // in microseconds
@@ -427,6 +465,7 @@ public:
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
         auto xorKey = generateXORKey(hashedPassword, binary.size());
         applyXOR(binary, xorKey);
+        printBits(binary);
         
 
         // Byte to Table byte reference
@@ -434,11 +473,13 @@ public:
         auto substitutionTable = generateByteSubstitutionTable(thirdRound);
         auto inverseTable = generateInverseSubstitutionTable(substitutionTable);
         byteSubstitutionDecrypt(binary, inverseTable);
+        printBits(binary);
         
 
         // Padding *bit
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "*" << bcolors::WHITE << "]" << " Removing Padding *bit";
         removePadding(binary, padding);
+        printBits(binary);
         
 
         // Unshuffle
@@ -446,6 +487,7 @@ public:
         std::hash<std::string> hashFn;
         size_t passwordHash = hashFn(firstRound);
         reverseByteShuffle(binary, passwordHash);
+        printBits(binary);
         
 
         // Save to decompress
@@ -562,36 +604,68 @@ private:
     }
 
     void compressFile(const std::string& inputFile) {
-
         if (!fs::exists(inputFile) || (fs::is_directory(inputFile) && fs::is_empty(inputFile))) return;
 
-        std::string tarFile = inputFile + ".tar";
-        std::string zstdFile = inputFile + ".zst";
+        std::filesystem::path inputPath(inputFile);
 
-        std::string tarCommand = "tar -cf " + tarFile + " " + inputFile;
-        if (std::system(tarCommand.c_str()) != 0 || !fs::exists(tarFile)) return;
+        // Convert to absolute path
+        std::filesystem::path absolutePath = fs::absolute(inputPath);
+        std::string directory = absolutePath.parent_path().string();
+        std::string fileName = absolutePath.filename().string();
 
-        auto originalSize = fs::file_size(inputFile+".tar");
+        // Ensure the directory is valid and exists
+        if (!fs::exists(directory)) {
+            std::cerr << "Directory does not exist: " << directory << std::endl;
+            return;
+        }
+
+        // Save the current working directory
+        auto currentPath = fs::current_path();
+
+        // Change to the directory where the file is located
+        try {
+            fs::current_path(directory);
+        } catch (const fs::filesystem_error& e) {
+            std::cerr << "Error changing directory: " << e.what() << std::endl;
+            return;
+        }
+
+        std::string tarFile = fileName + ".tar";
+        std::string zstdFile = fileName + ".zst";
+
+        std::string tarCommand = "tar -cf " + tarFile + " " + fileName;
+        std::cout << "COMMAND: " << tarCommand; 
+        if (std::system(tarCommand.c_str()) != 0 || !fs::exists(tarFile)) {
+            fs::current_path(currentPath); // Restore the original working directory
+            return;
+        }
+
+        auto originalSize = fs::file_size(tarFile);
         
         std::vector<char> fileData = readFile(tarFile);
         size_t compressedSize = ZSTD_compressBound(fileData.size());
         std::vector<char> compressedData(compressedSize);
         compressedSize = ZSTD_compress(compressedData.data(), compressedSize, fileData.data(), fileData.size(), 3);
-        if (ZSTD_isError(compressedSize)) return;
+        if (ZSTD_isError(compressedSize)) {
+            fs::current_path(currentPath); // Restore the original working directory
+            return;
+        }
 
         compressedData.resize(compressedSize);
         writeFile(zstdFile, compressedData);
         fs::remove(tarFile);
-        fs::remove_all(inputFile); 
-        fs::rename(zstdFile, inputFile);
-           
+        fs::remove_all(fileName); 
+        fs::rename(zstdFile, fileName);
+
+        // Restore the original working directory
+        fs::current_path(currentPath);
+        
         auto compressedFileSize = compressedData.size(); 
         int reductionPercentage = static_cast<int>(100.0 * (originalSize - compressedFileSize) / originalSize);
         std::cout << "    ↳ Reduced ~" 
                 << std::fixed << std::setprecision(2) << reductionPercentage 
                 << "% => " << std::fixed << std::setprecision(0) 
-                << formatFileSize(compressedFileSize) << " total bits";
-
+                << formatFileSize(compressedFileSize) << " total bits" << std::endl;
     }
 
     void decompressFile(const std::string& inputFile) {
@@ -620,7 +694,9 @@ private:
             std::system(untarCommand.c_str());
             fs::remove(tarFile);
         } catch (...) {
-            std::cerr << "\n\n["<< bcolors::RED << "!" << bcolors::WHITE << "]" << " Error decompressing:"<< bcolors::RED <<" Incorrect password or padding." << bcolors::WHITE << "\n    ↳ Backup file saved as: " << bcolors::GREEN << inputFile << ".backup" << std::endl;
+            std::cerr << "\n\n[" << bcolors::RED << "!" << bcolors::WHITE << "]" << " Error decompressing:" << bcolors::RED << " Incorrect password or padding." << bcolors::WHITE << "\n    ↳ Backup file saved as: " << bcolors::GREEN << inputFile << ".backup" << std::endl;
+            std::string zstdFile = inputFile + ".zst";
+            fs::remove(zstdFile);
             exit(1);
         }
     }
