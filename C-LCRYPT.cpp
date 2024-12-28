@@ -678,11 +678,12 @@ private:
             writeFile(tarFile, decompressedData);
             fs::remove(zstdFile);
 
+            // Get the directory of the input file
             std::string outputDir = fs::path(inputFile).parent_path().string();
             if (outputDir.empty()) outputDir = fs::current_path().string();
             if (!outputDir.empty() && !fs::exists(outputDir)) fs::create_directories(outputDir);
 
-            std::string untarCommand = "tar -xf " + tarFile;
+            std::string untarCommand = "tar -xf " + tarFile + " -C " + outputDir; // Extract to the original directory
             std::system(untarCommand.c_str());
             fs::remove(tarFile);
         } catch (...) {
