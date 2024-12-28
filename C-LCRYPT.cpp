@@ -78,7 +78,7 @@ bool checkMemoryRequirements(const std::string& filename, int padding) {
     long fileSize = file.tellg(); // Get file size
     file.close();
 
-    long requiredMemory = fileSize * (1 + (padding + 1) * 2) + 100 * 1024 * 1024; // Memory required + 500 MB
+    long requiredMemory = fileSize * (1 + (padding + 1) * 2) + 500 * 1024 * 1024; // Memory required + 500 MB
     long availableMemory = getAvailableRAM(); // Memmory aviable
 
     if (requiredMemory > availableMemory) {
@@ -314,7 +314,7 @@ public:
 
         // Continue with the nornal encryption process
         // Comprenssion
-        std::cout << bcolors::WHITE << "\n\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Compressing..." << std::endl;
+        std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Compressing..." << std::endl;
         compressFile(inputFile); // Compress file/folder
 
         auto start = std::chrono::high_resolution_clock::now(); // Start timer
@@ -434,7 +434,7 @@ public:
         // Continue with the normal decryption process
         auto start = std::chrono::high_resolution_clock::now(); // Start timer
         auto fileSize = fs::file_size(inputFile);
-        backup(inputFile); // Save backup file in case of failure
+        (inputFile); // Save backup file in case of failure
 
         // Load File to RAM
         std::cout << bcolors::WHITE << "\n[" << bcolors::ORANGE << "~" << bcolors::WHITE << "]" << " Loading File to RAM";
@@ -774,26 +774,33 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ INDIVIDUAL ~Byte SHUFFLE ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
     static uint8_t shuffleByte(uint8_t originalByte, size_t passwordHash, size_t index) { // Thread Task
-        std::array<uint8_t, 8> bitPatterns = {0, 1, 2, 3, 4, 5, 6, 7};
+        static const std::array<uint8_t, 8> bitPatterns = {0, 1, 2, 3, 4, 5, 6, 7};
+        std::array<uint8_t, 8> shuffledPatterns = bitPatterns;
         std::default_random_engine generator(passwordHash + index);
-        std::shuffle(bitPatterns.begin(), bitPatterns.end(), generator);
+        std::shuffle(shuffledPatterns.begin(), shuffledPatterns.end(), generator);
 
         uint8_t shuffledByte = 0;
         for (size_t j = 0; j < 8; ++j) {
-            shuffledByte |= ((originalByte >> (7 - j)) & 1) << bitPatterns[j];
+            shuffledByte |= ((originalByte >> (7 - j)) & 1) << shuffledPatterns[j];
         }
 
         return shuffledByte;
     }
 
     static uint8_t reverseShuffleByte(uint8_t mixedByte, size_t passwordHash, size_t index) { // Thread Task
-        std::array<uint8_t, 8> bitPatterns = {0, 1, 2, 3, 4, 5, 6, 7};
+        static const std::array<uint8_t, 8> bitPatterns = {0, 1, 2, 3, 4, 5, 6, 7};
+        std::array<uint8_t, 8> shuffledPatterns = bitPatterns;
         std::default_random_engine generator(passwordHash + index);
-        std::shuffle(bitPatterns.begin(), bitPatterns.end(), generator);
+        std::shuffle(shuffledPatterns.begin(), shuffledPatterns.end(), generator);
+
+        std::array<uint8_t, 8> reversePatterns;
+        for (size_t j = 0; j < 8; ++j) {
+            reversePatterns[shuffledPatterns[j]] = j;
+        }
 
         uint8_t restoredByte = 0;
         for (size_t j = 0; j < 8; ++j) {
-            restoredByte |= ((mixedByte >> bitPatterns[j]) & 1) << (7 - j);
+            restoredByte |= ((mixedByte >> j) & 1) << (7 - reversePatterns[j]);
         }
 
         return restoredByte;
@@ -922,22 +929,22 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ XOR Key +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 
-    static std::array<uint8_t, SHA256_DIGEST_LENGTH> hashPassword(const std::string& password) {     // Hash passwd in unit8_t
+    static std::array<uint8_t, SHA256_DIGEST_LENGTH> hashPassword(const std::string& password) {     // Hash password to uint8_t array
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hash;
         SHA256(reinterpret_cast<const uint8_t*>(password.c_str()), password.size(), hash.data());
         return hash; // Returns hash as an array
     }
 
-    // Generate XOR Key string with passwd
+    // Generate XOR Key string with password hash
     std::vector<uint8_t> generateXORKey(const std::array<uint8_t, SHA256_DIGEST_LENGTH>& passwordHash, size_t dataSize) {
         std::vector<uint8_t> key(dataSize);
         for (size_t i = 0; i < dataSize; ++i) {
             key[i] = passwordHash[i % SHA256_DIGEST_LENGTH]; // Only use Hash
         }
-        return key; 
+        return key;
     }
 
-    // Apply XOR Key in threads segments
+    // Apply XOR Key in thread segments
     static void xorSegment(std::vector<uint8_t>& binaryData, const uint8_t* key, size_t keyLength, size_t start, size_t end) {
         for (size_t i = start; i < end; ++i) {
             binaryData[i] ^= key[i % keyLength]; // Apply XOR with Key
@@ -947,11 +954,10 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
     void applyXOR(std::vector<uint8_t>& binaryData, const std::vector<uint8_t>& key) {
         size_t size = binaryData.size();
         unsigned int numCores = std::thread::hardware_concurrency();
-        size_t segmentSize = (size + numCores - 1) / numCores; // Round
+        size_t segmentSize = (size + numCores - 1) / numCores;
         std::vector<std::future<void>> futures;
 
-
-        const uint8_t* keyPtr = key.data(); // Pointer2Key
+        const uint8_t* keyPtr = key.data(); // Pointer to key
 
         for (unsigned int i = 0; i < numCores; ++i) { // Apply with multithread
             size_t start = i * segmentSize;
