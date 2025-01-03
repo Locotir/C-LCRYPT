@@ -1061,7 +1061,7 @@ std::string hashPassword(const std::string& password) {
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ Display  Help Message +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 void showHelp() {
-    std::cout << "Usage: ./LCRYPT [options]\n"
+    std::cout << "Usage: ./C-LCRYPT [options]\n"
               << "Options:\n"
               << "  -e <target>       Encrypt the specified file/folder\n"
               << "  -d <target>       Decrypt the specified file/folder\n"
@@ -1070,8 +1070,8 @@ void showHelp() {
               << "  --version         Show the current installed version\n"
               << "  -h                Display this help message\n"
               << "Examples:\n"
-              << "  ./LCRYPT -e target -p 10 -P my_password\n"
-              << "  ./LCRYPT -d target -p 10 -P my_password\n\n" 
+              << "  ./C-LCRYPT -e target -p 10 -P my_password\n"
+              << "  ./C-LCRYPT -d target -p 10 -P my_password\n\n" 
               << bcolors::GREEN << "If executed without arguments, interactive mode will start." << std::endl;
 } 
 
