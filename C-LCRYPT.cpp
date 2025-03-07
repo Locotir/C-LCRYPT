@@ -4,6 +4,9 @@
 #include <bitset>                                 // Enables the use of fixed-size bit sequences for binary manipulation.
 #include <random>                                 // Contains functions and classes for random number generation.
 #include <string>                                 // Provides the string class for handling text data.
+#include <set>                                    // Implements the std::set container for storing unique elements in a sorted order.
+#include <sys/stat.h>                             // Defines the struct stat and the stat() function to obtain file information (used for checking file existence and metadata).
+#include <regex>                                  // Provides support for regular expressions to search, match, and manipulate strings.
 #include <algorithm>                              // Offers a collection of algorithms (e.g., sorting, searching).
 #include <numeric>                                // Contains numeric operations (e.g., accumulation, reduction).
 #include <zlib.h>                                 // Provides functions for data compression and decompression using the zlib library.
@@ -20,6 +23,7 @@
 #include <cctype>                                 // Provides functions for character classification and manipulation (e.g., isdigit, isalpha).
 #include <omp.h>                                  // Provides support for multi-platform shared memory multiprocessing programming in C++.
 #include <array>                                  // Implements the array container for fixed-size array handling.
+#include <cstdio>                                 // Offers standard input/output functions like printf and scanf.
 #include <csignal>                                // Provides functions to handle asynchronous events (signals).
 #include <cstdlib>                                // Provides functions for memory allocation, process control, and conversions.
 #include <stdexcept>                              // Contains standard exception classes for error handling.
@@ -29,7 +33,7 @@
 #include <boost/iostreams/device/mapped_file.hpp> // Facilitates memory-mapped file I/O using the Boost Iostreams library.
 #include <sodium.h>                               // Provides functions for cryptographic operations, including password hashing and encryption, from the libsodium library.
 
-#define VERSION "v2.0.0\n"
+#define VERSION "v3.0.0\n"
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Color codes class ++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 class bcolors {
@@ -63,7 +67,7 @@ const std::string RESET = "\033[0m";
 
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ MEMORY CHECKING ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-long getAvailableRAM() {
+long long getAvailableRAM() {
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         perror("sysinfo");
@@ -78,8 +82,8 @@ bool checkMemoryRequirements(const std::string& filename, int padding) {
     long fileSize = file.tellg(); // Get file size
     file.close();
 
-    long requiredMemory = fileSize * (1 + (padding + 1) * 2) + 500 * 1024 * 1024; // Memory required + 500 MB
-    long availableMemory = getAvailableRAM(); // Memmory aviable
+    long requiredMemory = fileSize * (1 + padding) * 2 + (500 * 1024 * 1024); // Memory required + 500 MB
+    long long availableMemory =  getAvailableRAM(); // Memmory aviable
 
     if (requiredMemory > availableMemory) {
         std::cerr << bcolors::RED << "Not enough RAM to process file" << RESET << std::endl;
@@ -120,6 +124,7 @@ std::vector<std::string> splitFile(const std::string& filename, long partSize) {
 std::string getExecutablePath() {
     char exePath[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+
     if (len != -1) {
         exePath[len] = '\0'; // Null-terminate the path
         return std::string(exePath);
@@ -132,14 +137,17 @@ std::string getExecutablePath() {
 // Encrypt or decrypt files using the executable externally
 void processFiles(const std::vector<std::string>& files, const std::string& password, int padding, bool encrypt) {
     std::string exePath = getExecutablePath();
-    if (exePath.empty()) return;
+    if (exePath.empty()) {
+        std::cerr << "Failed to get executable path" << std::endl;
+        return;
+    }
 
     std::string exeDir = exePath.substr(0, exePath.find_last_of("/"));
     std::string exeName = exePath.substr(exePath.find_last_of("/") + 1);
     std::string commandBase = exeDir + "/" + exeName + (encrypt ? " -e " : " -d ");
 
-    for (const auto& file : files) {
-        std::string command = commandBase + file + " -p " + std::to_string(padding) + " -P " + password + " &> /dev/null";
+    for (const auto& file : files) {                                                                        
+        std::string command = commandBase + file + " -p " + std::to_string(padding) + " -P " + password + " &> /dev/null"; 
         std::cout << bcolors::WHITE << " [" << bcolors::GREEN <<  "$" << bcolors::WHITE << "]" << (encrypt ? " Encrypting " : " Decrypting ") << "part: " << file << std::endl;
         if (std::system(command.c_str()) != 0) {
             std::cerr << "Failed to execute command: " << command << std::endl;
@@ -148,88 +156,113 @@ void processFiles(const std::vector<std::string>& files, const std::string& pass
     }
 }
 
-// Archive the split files into a single tar file
+// Archive the split files into a single archive file
 void archiveFiles(const std::vector<std::string>& files, const std::string& inputFile) {
-    // Extract directory and file name from inputFile
-    std::filesystem::path inputPath(inputFile);
-    std::string directory = inputPath.parent_path().string();
-    std::string fileName = inputPath.filename().string();
-
-    // Save the current working directory
-    auto currentPath = std::filesystem::current_path();
-
-    // Change to the directory where the files are located
-    std::filesystem::current_path(directory);
-
-    // Create the tar command
-    std::string archiveName = fileName + ".tar";
-    std::string command = "tar -cf " + archiveName;
-    for (const auto& file : files) {
-        std::filesystem::path filePath(file);
-        command += " " + filePath.filename().string();
-    }
-
-    // Execute the tar command
-    if (std::system(command.c_str()) != 0) {
-        std::cerr << "Failed to create tar archive: " << archiveName << std::endl;
-        // Change back to the original working directory
-        std::filesystem::current_path(currentPath);
+    std::ofstream archive(inputFile, std::ios::binary);
+    if (!archive) {
+        std::cerr << bcolors::RED << "Failed to create archive file: " << inputFile << RESET << std::endl;
         return;
     }
 
-    // Remove the part files
+    // Escribir el encabezado una sola vez al inicio
+    const std::string header = "_PARTS_COMBINED_";
+    archive.write(header.c_str(), header.size());
+
     for (const auto& file : files) {
-        std::remove(file.c_str());
+        std::ifstream partFile(file, std::ios::binary | std::ios::ate);
+        if (!partFile) {
+            std::cerr << bcolors::RED << "Failed to open part file: " << file << RESET << std::endl;
+            continue;
+        }
+
+        std::size_t size = partFile.tellg();
+        partFile.seekg(0, std::ios::beg);
+
+        // Write part size
+        archive.write(reinterpret_cast<const char*>(&size), sizeof(size));
+        // Write data to encrypted part
+        archive << partFile.rdbuf();
+        partFile.close();
+        std::remove(file.c_str()); // Del original part
     }
 
-    // Rename the .tar archive to the original input file name
-    std::rename(archiveName.c_str(), fileName.c_str());
-
-    // Change back to the original working directory
-    std::filesystem::current_path(currentPath);
+    archive.close();
+    std::cout << bcolors::GREEN << "Combined file successfully created and parts removed!" << RESET << std::endl;
 }
 
-// Extract the split files from a tar archive
-void extractFiles(const std::string& inputFile) {
-    // Extract directory and file name from inputFile
-    std::filesystem::path inputPath(inputFile);
-    std::string directory = inputPath.parent_path().string();
-    std::string fileName = inputPath.filename().string();
 
-    // Save the current working directory
-    auto currentPath = std::filesystem::current_path();
-
-    // Change to the directory where the files are located
-    std::filesystem::current_path(directory);
-
-    std::string archiveName = fileName + ".tar";
-    std::rename(fileName.c_str(), archiveName.c_str());
-
-    std::string command = "tar -xf " + archiveName;
-    if (std::system(command.c_str()) != 0) {
-        std::cerr << "Failed to extract tar archive: " << archiveName << std::endl;
+// Extract, merge, and prepare files for decryption
+std::vector<std::string> extractFiles(const std::string& archiveFile) {
+    std::ifstream archive(archiveFile, std::ios::binary);
+    if (!archive) {
+        std::cerr << bcolors::RED << "Can't open combined file: " << archiveFile << RESET << std::endl;
+        return {};
     }
 
-    std::rename(archiveName.c_str(), fileName.c_str());
+    // Verify header
+    const std::string header = "_PARTS_COMBINED_";
+    std::vector<char> headerBuffer(header.size());
+    archive.read(headerBuffer.data(), header.size());
+    if (std::string(headerBuffer.begin(), headerBuffer.end()) != header) {
+        std::cerr << bcolors::RED << "Invalid Format: header don't match" << RESET << std::endl;
+        archive.close();
+        return {};
+    }
 
-    // Change back to the original working directory
-    std::filesystem::current_path(currentPath);
+    std::vector<std::string> extractedParts;
+    int partNum = 1;
+
+    while (archive) {
+        std::size_t size;
+        archive.read(reinterpret_cast<char*>(&size), sizeof(size));
+        if (archive.eof()) break; // End of file
+
+        if (!archive) {
+            std::cerr << bcolors::RED << "Error reading part size" << RESET << std::endl;
+            break;
+        }
+
+        std::string partName = "_part_" + std::to_string(partNum++);
+        std::ofstream partFile(partName, std::ios::binary);
+        if (!partFile) {
+            std::cerr << bcolors::RED << "Can't create file part: " << partName << RESET << std::endl;
+            continue;
+        }
+
+        std::vector<char> buffer(size);
+        archive.read(buffer.data(), size);
+        if (archive.gcount() != static_cast<std::streamsize>(size)) {
+            std::cerr << bcolors::RED << "Error reading part data: " << partName << RESET << std::endl;
+            partFile.close();
+            std::remove(partName.c_str());
+            continue;
+        }
+
+        partFile.write(buffer.data(), size);
+        partFile.close();
+
+        extractedParts.push_back(partName);
+    }
+
+    archive.close();
+    return extractedParts;
 }
+
 
 // Verify if a file was split into parts
 bool containsPartTag(const std::string& filename) {
     std::ifstream file(filename, std::ios::binary);
     if (!file) {
-        std::cerr << "Failed to open file: " << filename << std::endl;
+        std::cerr << bcolors::RED << "Failed to open file: " << filename << RESET << std::endl;
         return false;
     }
 
-    const size_t bufferSize = 512;
-    char buffer[bufferSize] = {0};
-    file.read(buffer, bufferSize);
+    const std::string header = "_PARTS_COMBINED_";
+    std::vector<char> buffer(header.size());
+    file.read(buffer.data(), header.size());
     file.close();
 
-    return std::string(buffer, file.gcount()).find("_part_") != std::string::npos;
+    return std::string(buffer.begin(), buffer.end()) == header;
 }
 // --------------------------------------------------------------------------------------------------------------------------------------
 
@@ -290,14 +323,24 @@ public:
             long fileSize = file.tellg();
             file.close();
 
-            long availableMemory = getAvailableRAM();
-            long requiredMemory = fileSize * (1 + (padding + 1) * 2) + 500 * 1024 * 1024;
-            int numberOfParts = (requiredMemory + availableMemory - 1) / availableMemory; // Calculate the number of parts required
-            long partSize = (fileSize + numberOfParts - 1) / numberOfParts; // Calculate the size of each part
+            long long availableMemory =  getAvailableRAM();  // Memmory aviable
+            long requiredMemory = fileSize * 2 * (1 + padding) + (500 * 1024 * 1024);
+            int numberOfParts = std::ceil((double)requiredMemory / availableMemory); // Calculate the number of parts required
+            numberOfParts += 1;
+            if (numberOfParts < 1) numberOfParts = 1;
+            if (numberOfParts == 1 && requiredMemory > availableMemory) {
+                numberOfParts = 2;
+            }
+            long partSize = ((fileSize / numberOfParts) + 511) & ~511; ; // Calculate the size of each part
 
-            if (partSize <= 0) partSize = 1; // Ensure partSize is positive
+            if (partSize <= 0) partSize = 512; // Ensure partSize is positive
 
             std::vector<std::string> partFiles = splitFile(inputFile, partSize); // Split the file into parts
+            if (partFiles.empty()) {
+                std::cerr << "File splitting failed: No parts generated" << std::endl;
+                return;
+            }
+            
 
             std::cout << bcolors::WHITE << " [" << bcolors::RED << "||" << bcolors::WHITE << "]"
                     << " File split into " << partFiles.size() << " parts due to insufficient RAM" << std::endl;
@@ -307,7 +350,7 @@ public:
             archiveFiles(partFiles, inputFile); // Archive the encrypted parts into a single tar file
 
             std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]"
-                    << " Encrypted file saved as: " << inputFile << std::endl;
+                    << " Encrypted target saved as: " << inputFile << std::endl;
 
             exit(0); // Exit after encrypting the parts
         }
@@ -364,7 +407,7 @@ public:
 
         // Finish & save
         saveToFile(inputFile, binary);
-        std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]" << " Encrypted file saved as: " << inputFile << std::endl;
+        std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]" << " Encrypted target saved as: " << inputFile << std::endl;
         auto end = std::chrono::high_resolution_clock::now(); // Stop timer
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
@@ -380,56 +423,75 @@ public:
     void decrypt(const std::string& inputFile, int padding) {
         // Check if the file was split into parts
         if (containsPartTag(inputFile)) {
-            backup(inputFile); // Save backup file in case of failure
+            backup(inputFile); // Create a backup
 
             std::cout << bcolors::YELLOW << "! The file was split due to insufficient RAM during encryption process." << std::endl;
-            extractFiles(inputFile);
 
-            // Collect the names of the split files
-            std::vector<std::string> partFiles;
-            for (char suffix1 = 'a'; suffix1 <= 'z'; ++suffix1) {
-                for (char suffix2 = 'a'; suffix2 <= 'z'; ++suffix2) {
-                    std::string partFilename = inputFile + "_part_" + suffix1 + suffix2;
-                    std::ifstream partFile(partFilename);
-                    if (!partFile) break;
-                    partFiles.push_back(partFilename);
-                }
-            }
+            // Extract the parts (e.g., b_part_aa, b_part_ab, b_part_ac, ...)
+            std::vector<std::string> partFiles = extractFiles(inputFile); // This should return ["b_part_aa", "b_part_ab", ...]
 
             // Decrypt the parts
             processFiles(partFiles, password, padding, false);
 
-            // Concatenate the decrypted parts into a single file
+            // Now we need to brute-force search for the decrypted part files
+            std::string partPrefix = inputFile + "_part_";  // Prefix of decrypted parts based on inputFile
+            std::vector<std::string> decryptedParts;
+
+            // Brute-force search for decrypted part files (e.g., <inputFile>_part_aa, <inputFile>_part_ab, ...)
+            for (char suffix1 = 'a'; suffix1 <= 'z'; ++suffix1) {
+                for (char suffix2 = 'a'; suffix2 <= 'z'; ++suffix2) {
+                    std::string partFile = partPrefix + suffix1 + suffix2;
+
+                    std::ifstream part(partFile, std::ios::binary);
+                    if (!part) {
+                        // If the part file doesn't exist, break out of the loop
+                        if (suffix1 == 'a' && suffix2 == 'a') {
+                            std::cerr << bcolors::RED << "No decrypted parts found for file: " << inputFile << RESET << std::endl;
+                        }
+                        break;  // No more parts exist, so stop searching
+                    }
+
+                    // Append found part to the decryptedParts vector
+                    decryptedParts.push_back(partFile);
+                    part.close(); // Close the part file
+                }
+            }
+
+            // Now concatenate the decrypted parts into the final output file
             std::ofstream output(inputFile, std::ios::binary);
             if (!output) {
-                std::cerr << "Failed to open output file: " << inputFile << std::endl;
+                std::cerr << bcolors::RED << "Failed to open output file: " << inputFile << RESET << std::endl;
                 return;
             }
 
-            for (const auto& file : partFiles) {
-                std::ifstream input(file, std::ios::binary);
-                if (!input) {
-                    std::cerr << "Failed to open input file: " << file << std::endl;
-                    continue;
+            // Append the decrypted parts to the output file
+            for (const std::string& partFile : decryptedParts) {
+                std::ifstream part(partFile, std::ios::binary);
+                if (!part) {
+                    std::cerr << bcolors::RED << "Failed to open decrypted part file: " << partFile << RESET << std::endl;
+                    return;
                 }
-                output << input.rdbuf();
-                input.close();
+
+                output << part.rdbuf();  // Append the content of the part file to the output file
+                part.close();  // Close the part file after reading it
+
+                // Remove the part file after appending it
+                std::remove(partFile.c_str());  // Delete the part file after it's been appended
             }
-            output.close();
+            
+            std::cout << bcolors::GREEN << "File parts combined successfully!" << RESET << std::endl;
 
-            // Remove the part files
-            for (const auto& file : partFiles) {
-                std::remove(file.c_str());
-            }
+            output.close();  // Close the final output file
 
-            std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "] Decrypted file saved as: " << inputFile << std::endl;
+            std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "] Decrypted target saved as: " << inputFile << std::endl;
 
-            // Delete backup file
+            // Remove the backup file after successful completion
             std::string backupFile = inputFile + ".backup";
             std::remove(backupFile.c_str());
 
-            exit(0); // Exit after decrypting the parts
+            exit(0);  // Exit after completion
         }
+
 
         // Continue with the normal decryption process
         auto start = std::chrono::high_resolution_clock::now(); // Start timer
@@ -494,7 +556,7 @@ public:
         std::remove(backupFile.c_str());
 
         // Finish
-        std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]" << " Decrypted file saved as: " << inputFile << std::endl;
+        std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]" << " Decrypted target saved as: " << inputFile << std::endl;
         auto end = std::chrono::high_resolution_clock::now(); // Stop timer
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
@@ -556,144 +618,329 @@ private:
 
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Compressing / Decompressing ++++++++++++++++++++++++++++++++++++++++++++++++++++
-    std::vector<char> readFile(const std::string& filePath) {
-        std::ifstream file(filePath, std::ios::binary);
-        if (!file) {
-            throw std::runtime_error("Can't open file.");
-        }
+    struct TarHeader {
+        char name[100];
+        char mode[8];
+        char uid[8];
+        char gid[8];
+        char size[12];
+        char mtime[12];
+        char checksum[8];
+        char typeflag[1];
+        char linkname[100];
+        char magic[6];
+        char version[2];
+        char uname[32];
+        char gname[32];
+        char devmajor[8];
+        char devminor[8];
+        char prefix[155];
+        char pad[12];
+    };
 
-        file.seekg(0, std::ios::end);
-        std::streamsize size = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        std::vector<char> buffer(size);
-        if (!file.read(buffer.data(), size)) {
-            throw std::runtime_error("Error reading file.");
+    void create_tar_archive(const fs::path& input_path, const fs::path& tar_file) {
+        std::ofstream tar(tar_file, std::ios::binary);
+        if (!tar) {
+            throw std::runtime_error("Failed to create tar file: " + tar_file.string());
         }
-        return buffer;
+    
+        std::set<std::string> directories; // Para rastrear directorios ya archivados
+    
+        // Archivar si es un directorio
+        if (fs::is_directory(input_path)) {
+            std::string root_dir = input_path.filename().string() + "/";
+    
+            // Archivar la carpeta raíz primero
+            TarHeader root_header = {};
+            if (root_dir.size() > sizeof(root_header.name) - 1) {
+                throw std::runtime_error("Root directory path too long for tar: " + root_dir);
+            }
+    
+            strncpy(root_header.name, root_dir.c_str(), sizeof(root_header.name) - 1);
+            sprintf(root_header.mode, "%07o", 0755);
+            sprintf(root_header.size, "%011lo", 0);
+            sprintf(root_header.mtime, "%011lo", (unsigned long)fs::last_write_time(input_path).time_since_epoch().count() / 1000000000);
+            strcpy(root_header.magic, "ustar");
+            strcpy(root_header.version, "00");
+            root_header.typeflag[0] = '5'; // Directorio
+    
+            unsigned int sum = 0;
+            unsigned char* p = reinterpret_cast<unsigned char*>(&root_header);
+            for (int i = 0; i < 512; ++i) {
+                sum += (i >= 148 && i < 156) ? ' ' : p[i];
+            }
+            sprintf(root_header.checksum, "%06o ", sum);
+    
+            tar.write(reinterpret_cast<const char*>(&root_header), 512);
+    
+            // Archivar todos los directorios y archivos dentro de la carpeta
+            for (const auto& entry : fs::recursive_directory_iterator(input_path)) {
+                std::string relative_path = fs::relative(entry.path(), input_path).string();
+                std::string full_path = root_dir + relative_path;
+    
+                if (entry.is_directory()) {
+                    std::string dir_path = full_path + "/";
+                    if (directories.insert(dir_path).second) {
+                        TarHeader header = {};
+                        if (dir_path.size() > sizeof(header.name) - 1) {
+                            throw std::runtime_error("Directory path too long for tar: " + dir_path);
+                        }
+                        strncpy(header.name, dir_path.c_str(), sizeof(header.name) - 1);
+                        sprintf(header.mode, "%07o", 0755);
+                        sprintf(header.size, "%011lo", 0);
+                        sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(entry.path()).time_since_epoch().count() / 1000000000);
+                        strcpy(header.magic, "ustar");
+                        strcpy(header.version, "00");
+                        header.typeflag[0] = '5'; // Directorio
+    
+                        sum = 0;
+                        p = reinterpret_cast<unsigned char*>(&header);
+                        for (int i = 0; i < 512; ++i) {
+                            sum += (i >= 148 && i < 156) ? ' ' : p[i];
+                        }
+                        sprintf(header.checksum, "%06o ", sum);
+    
+                        tar.write(reinterpret_cast<const char*>(&header), 512);
+                    }
+                } else if (entry.is_regular_file()) {
+                    TarHeader header = {};
+                    if (full_path.size() > sizeof(header.name) - 1) {
+                        throw std::runtime_error("File path too long for tar: " + full_path);
+                    }
+                    strncpy(header.name, full_path.c_str(), sizeof(header.name) - 1);
+                    sprintf(header.mode, "%07o", 0644);
+                    sprintf(header.size, "%011lo", (unsigned long)fs::file_size(entry.path()));
+                    sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(entry.path()).time_since_epoch().count() / 1000000000);
+                    strcpy(header.magic, "ustar");
+                    strcpy(header.version, "00");
+                    header.typeflag[0] = '0'; // Archivo regular
+    
+                    sum = 0;
+                    p = reinterpret_cast<unsigned char*>(&header);
+                    for (int i = 0; i < 512; ++i) {
+                        sum += (i >= 148 && i < 156) ? ' ' : p[i];
+                    }
+                    sprintf(header.checksum, "%06o ", sum);
+    
+                    tar.write(reinterpret_cast<const char*>(&header), 512);
+    
+                    std::ifstream file(entry.path(), std::ios::binary);
+                    if (!file) {
+                        throw std::runtime_error("Failed to open file: " + entry.path().string());
+                    }
+                    tar << file.rdbuf();
+    
+                    size_t bytes_written = fs::file_size(entry.path());
+                    size_t padding = (512 - (bytes_written % 512)) % 512;
+                    char zero[512] = {0};
+                    tar.write(zero, padding);
+                }
+            }
+        } else {
+            // Archive individual file
+            TarHeader header = {};
+            std::string filename = input_path.filename().string();
+            std::cout << "Archiving: " << filename << "\n";
+            strncpy(header.name, filename.c_str(), sizeof(header.name) - 1);
+            sprintf(header.mode, "%07o", 0644);
+            sprintf(header.size, "%011lo", (unsigned long)fs::file_size(input_path));
+            sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(input_path).time_since_epoch().count() / 1000000000);
+            strcpy(header.magic, "ustar");
+            strcpy(header.version, "00");
+            header.typeflag[0] = '0'; // Archivo regular
+    
+            unsigned int sum = 0;
+            unsigned char* p = reinterpret_cast<unsigned char*>(&header);
+            for (int i = 0; i < 512; ++i) {
+                sum += (i >= 148 && i < 156) ? ' ' : p[i];
+            }
+            sprintf(header.checksum, "%06o ", sum);
+    
+            tar.write(reinterpret_cast<const char*>(&header), 512);
+    
+            std::ifstream file(input_path, std::ios::binary);
+            if (!file) {
+                throw std::runtime_error("Failed to open file: " + input_path.string());
+            }
+            tar << file.rdbuf();
+    
+            size_t bytes_written = fs::file_size(input_path);
+            size_t padding = (512 - (bytes_written % 512)) % 512;
+            char zero[512] = {0};
+            tar.write(zero, padding);
+        }
+    
+        // Finalizar el TAR con bloques vacíos
+        char zero[512] = {0};
+        tar.write(zero, 512);
+        tar.write(zero, 512);
+    }
+    
+
+    void extract_tar_archive(const fs::path& tar_file, const fs::path& output_dir) {
+        std::ifstream tar(tar_file, std::ios::binary);
+        if (!tar) {
+            throw std::runtime_error("Failed to open tar file: " + tar_file.string());
+        }
+    
+        fs::create_directories(output_dir);
+    
+        while (tar) {
+            TarHeader header;
+            tar.read(reinterpret_cast<char*>(&header), 512);
+            if (!tar || std::string(header.name).empty()) break;
+    
+            unsigned long size = std::strtoul(header.size, nullptr, 8);
+            std::string file_path = (output_dir / header.name).string();
+    
+            if (header.typeflag[0] == '5') { // Directorio
+                fs::create_directories(file_path);
+                // No hay datos para leer, solo avanzamos
+            } else if (header.typeflag[0] == '0' || header.typeflag[0] == '\0') { // Archivo regular
+                fs::create_directories(fs::path(file_path).parent_path());
+    
+                std::ofstream file(file_path, std::ios::binary);
+                if (!file) {
+                    throw std::runtime_error("Failed to create file: " + file_path);
+                }
+    
+                std::vector<char> buffer(size);
+                tar.read(buffer.data(), size);
+                file.write(buffer.data(), size);
+    
+                size_t padding = (512 - (size % 512)) % 512;
+                tar.seekg(padding, std::ios::cur);
+            } else {
+                tar.seekg((size + 511) / 512 * 512, std::ios::cur); // Saltar otros tipos
+            }
+        }
     }
 
+    // Función para leer un archivo completo en un vector de bytes
+    std::vector<char> readFile(const std::string& filePath) {
+        std::ifstream file(filePath, std::ios::binary);
+        return std::vector<char>((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    }
 
+    // Función para escribir un vector de bytes en un archivo
     void writeFile(const std::string& filePath, const std::vector<char>& data) {
         std::ofstream file(filePath, std::ios::binary);
-        if (!file) {
-            throw std::runtime_error("Can't open file for writing.");
-        }
         file.write(data.data(), data.size());
     }
 
-    std::string formatFileSize(size_t size) { // Format to bytes
-        std::ostringstream formattedSize;
-        std::string sizeStr = std::to_string(size);
-        
-        for (size_t i = 0; i < sizeStr.length(); ++i) {
-            if (i > 0 && (sizeStr.length() - i) % 3 == 0) {
-                formattedSize << ".";
-            }
-            formattedSize << sizeStr[i];
+    // Función para formatear el tamaño del archivo
+    std::string formatFileSize(size_t size) {
+        std::ostringstream oss;
+        if (size >= (1 << 30)) {
+            oss << (size >> 30) << " GiB";
+        } else if (size >= (1 << 20)) {
+            oss << (size >> 20) << " MiB";
+        } else if (size >= (1 << 10)) {
+            oss << (size >> 10) << " KiB";
+        } else {
+            oss << size << " bytes";
         }
-        return formattedSize.str();
+        return oss.str();
     }
 
+    // Función para comprimir un archivo o directorio
     void compressFile(const std::string& inputFile) {
         if (!fs::exists(inputFile) || (fs::is_directory(inputFile) && fs::is_empty(inputFile))) return;
-
-        std::filesystem::path inputPath(inputFile);
-
-        // Convert to absolute path
-        std::filesystem::path absolutePath = fs::absolute(inputPath);
+    
+        fs::path inputPath(inputFile);
+        fs::path absolutePath = fs::absolute(inputPath);
         std::string directory = absolutePath.parent_path().string();
         std::string fileName = absolutePath.filename().string();
-
-        // Ensure the directory is valid and exists
+    
         if (!fs::exists(directory)) {
             std::cerr << "Directory does not exist: " << directory << std::endl;
             return;
         }
-
-        // Save the current working directory
+    
         auto currentPath = fs::current_path();
-
-        // Change to the directory where the file is located
-        try {
-            fs::current_path(directory);
-        } catch (const fs::filesystem_error& e) {
-            std::cerr << "Error changing directory: " << e.what() << std::endl;
-            return;
-        }
-
+        fs::current_path(directory);
+    
         std::string tarFile = fileName + ".tar";
         std::string zstdFile = fileName + ".zst";
-
-        std::string tarCommand = "tar -cf " + tarFile + " " + fileName;
-        
-        if (std::system(tarCommand.c_str()) != 0 || !fs::exists(tarFile)) {
-            fs::current_path(currentPath); // Restore the original working directory
-            return;
-        }
-
+    
+        create_tar_archive(absolutePath, tarFile);
+    
         auto originalSize = fs::file_size(tarFile);
-        
+    
         std::vector<char> fileData = readFile(tarFile);
         size_t compressedSize = ZSTD_compressBound(fileData.size());
         std::vector<char> compressedData(compressedSize);
+    
         compressedSize = ZSTD_compress(compressedData.data(), compressedSize, fileData.data(), fileData.size(), 3);
         if (ZSTD_isError(compressedSize)) {
-            fs::current_path(currentPath); // Restore the original working directory
+            std::cerr << "Compression error: " << ZSTD_getErrorName(compressedSize) << std::endl;
+            fs::current_path(currentPath);
             return;
         }
-
+    
         compressedData.resize(compressedSize);
         writeFile(zstdFile, compressedData);
         fs::remove(tarFile);
-        fs::remove_all(fileName); 
+        fs::remove_all(fileName);
         fs::rename(zstdFile, fileName);
-
-        // Restore the original working directory
+    
         fs::current_path(currentPath);
-        
-        auto compressedFileSize = compressedData.size(); 
+    
+        auto compressedFileSize = compressedData.size();
         int reductionPercentage = static_cast<int>(100.0 * (originalSize - compressedFileSize) / originalSize);
         std::cout << "    ↳ Reduced ~" 
-                << std::fixed << std::setprecision(2) << reductionPercentage 
-                << "% => " << std::fixed << std::setprecision(0) 
-                << formatFileSize(compressedFileSize) << " total bits" << std::endl;
+                  << std::fixed << std::setprecision(2) << reductionPercentage 
+                  << "% => " << std::fixed << std::setprecision(0) 
+                  << formatFileSize(compressedFileSize) << " total bits" << std::endl;
     }
 
+    // Función para descomprimir un archivo
     void decompressFile(const std::string& inputFile) {
+        auto currentPath = fs::current_path();
         try {
             std::string zstdFile = inputFile + ".zst";
             std::string tarFile = inputFile + ".tar";
-
+    
+            // Renombrar el archivo encriptado a .zst para procesarlo
             fs::rename(inputFile, zstdFile);
             std::vector<char> compressedData = readFile(zstdFile);
-
+    
             unsigned long long decompressedSize = ZSTD_getFrameContentSize(compressedData.data(), compressedData.size());
-            if (decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN) throw std::runtime_error("Incorrect password or padding");
-
+            if (decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN) {
+                throw std::runtime_error("Incorrect password or padding");
+            }
+    
             std::vector<char> decompressedData(decompressedSize);
             decompressedSize = ZSTD_decompress(decompressedData.data(), decompressedSize, compressedData.data(), compressedData.size());
-            if (ZSTD_isError(decompressedSize)) throw std::runtime_error("Incorrect password or padding");
-
+            if (ZSTD_isError(decompressedSize)) {
+                throw std::runtime_error("Incorrect password or padding");
+            }
+    
+            // Escribir el .tar temporal
             writeFile(tarFile, decompressedData);
             fs::remove(zstdFile);
-
-            // Get the directory of the input file
-            std::string outputDir = fs::path(inputFile).parent_path().string();
-            if (outputDir.empty()) outputDir = fs::current_path().string();
-            if (!outputDir.empty() && !fs::exists(outputDir)) fs::create_directories(outputDir);
-
-            std::string untarCommand = "tar -xf " + tarFile + " -C " + outputDir; // Extract to the original directory
-            std::system(untarCommand.c_str());
+    
+            // Determinar el directorio de salida
+            fs::path inputPath(inputFile);
+            fs::path outputDir = inputPath.parent_path(); // Directorio padre
+            if (outputDir.empty()) {
+                outputDir = "."; // Usar el directorio actual si no hay padre
+            }
+    
+            // Extraer el .tar en el directorio padre
+            extract_tar_archive(tarFile, outputDir);
             fs::remove(tarFile);
-        } catch (...) {
-            std::cerr << "\n\n[" << bcolors::RED << "!" << bcolors::WHITE << "]" << " Error decompressing:" << bcolors::RED << " Incorrect password or padding." << bcolors::WHITE << "\n    ↳ Backup file saved as: " << bcolors::GREEN << inputFile << ".backup" << std::endl;
+    
+            fs::current_path(currentPath);
+
+        } catch (const std::exception& e) {
+            std::cerr << "\n\n[" << bcolors::RED << "!" << bcolors::WHITE << "]" << " Error decompressing:" << bcolors::RED << " " << e.what() << bcolors::WHITE << "\n    ↳ Backup file saved as: " << bcolors::GREEN << inputFile << ".backup" << std::endl;
             std::string zstdFile = inputFile + ".zst";
-            fs::remove(zstdFile);
+            if (fs::exists(zstdFile)) fs::rename(zstdFile, inputFile);
+            fs::current_path(currentPath);
             exit(1);
         }
     }
-
 // --------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -1075,6 +1322,10 @@ void showHelp() {
               << bcolors::GREEN << "If executed without arguments, interactive mode will start." << std::endl;
 } 
 
+bool isFile(const std::string& path) { // Chech if -P (passwd) is a file
+    struct stat buffer;
+    return (stat(path.c_str(), &buffer) == 0);  // Verifica si el archivo existe
+}
 
 int main(int argc, char *argv[]) {
     
@@ -1177,9 +1428,20 @@ int main(int argc, char *argv[]) {
                 case 'p': // Padding
                     padding = std::stoi(optarg);
                     break;
-                case 'P': // Passwd
-                    password = optarg;
-                    break;                    
+                    case 'P': // Password from file or plain text
+                    if (isFile(optarg)) {  // If argument: file
+                        std::ifstream passwordFile(optarg);
+                        if (passwordFile) {
+                            std::getline(passwordFile, password);  // Read first line
+                            passwordFile.close();
+                        } else {
+                            std::cout << "Error: Cannot read password file." << std::endl;
+                            return EXIT_FAILURE;
+                        }
+                    } else {  // Si no es un archivo, tomarlo como contraseña directa
+                        password = optarg;
+                    }
+                    break;          
                 case 'h': // Show help
                     show_help = true;
                     break;
@@ -1223,3 +1485,7 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
+// ####################################################################################################################################################################
+// ####################################################################################################################################################################
+// ####################################################################################################################################################################
