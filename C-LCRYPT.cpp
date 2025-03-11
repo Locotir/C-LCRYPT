@@ -1,18 +1,13 @@
 #include <iostream>                               // Provides functionalities for input and output (cin, cout).
 #include <fstream>                                // Allows file stream handling (reading from and writing to files).
 #include <vector>                                 // Implements the vector container for dynamic array handling.
-#include <bitset>                                 // Enables the use of fixed-size bit sequences for binary manipulation.
 #include <random>                                 // Contains functions and classes for random number generation.
 #include <string>                                 // Provides the string class for handling text data.
 #include <set>                                    // Implements the std::set container for storing unique elements in a sorted order.
 #include <sys/stat.h>                             // Defines the struct stat and the stat() function to obtain file information (used for checking file existence and metadata).
-#include <regex>                                  // Provides support for regular expressions to search, match, and manipulate strings.
 #include <algorithm>                              // Offers a collection of algorithms (e.g., sorting, searching).
-#include <numeric>                                // Contains numeric operations (e.g., accumulation, reduction).
-#include <zlib.h>                                 // Provides functions for data compression and decompression using the zlib library.
 #include <sstream>                                // Facilitates string stream operations for manipulating strings as streams.
 #include <filesystem>                             // Introduces facilities for file system operations (directories, paths).
-#include <iomanip>                                // Provides manipulators for input/output formatting (e.g., controlling decimal precision).
 #include <openssl/sha.h>                          // Contains functions for SHA hashing using the OpenSSL library.
 #include <cstring>                                // Provides functions for handling C-style strings (e.g., strcpy, strlen).
 #include <limits>                                 // Defines characteristics of fundamental data types (e.g., min/max values).
@@ -20,7 +15,6 @@
 #include <unistd.h>                               // Contains miscellaneous symbolic constants and types, including POSIX operating system API.
 #include <chrono>                                 // Provides utilities for measuring time and duration.
 #include <sys/sysinfo.h>                          // Contains definitions for obtaining system information (e.g., memory usage, uptime).
-#include <cctype>                                 // Provides functions for character classification and manipulation (e.g., isdigit, isalpha).
 #include <omp.h>                                  // Provides support for multi-platform shared memory multiprocessing programming in C++.
 #include <array>                                  // Implements the array container for fixed-size array handling.
 #include <cstdio>                                 // Offers standard input/output functions like printf and scanf.
@@ -28,7 +22,6 @@
 #include <cstdlib>                                // Provides functions for memory allocation, process control, and conversions.
 #include <stdexcept>                              // Contains standard exception classes for error handling.
 #include <future>                                 // Provides support for asynchronous programming and future/promise functionality.
-#include <immintrin.h>                            // Includes definitions for AVX and SIMD operations (if supported).
 #include <zstd.h>                                 // Provides functions for data compression and decompression using the Zstandard library.
 #include <boost/iostreams/device/mapped_file.hpp> // Facilitates memory-mapped file I/O using the Boost Iostreams library.
 #include <sodium.h>                               // Provides functions for cryptographic operations, including password hashing and encryption, from the libsodium library.
@@ -82,7 +75,7 @@ bool checkMemoryRequirements(const std::string& filename, int padding) {
     long fileSize = file.tellg(); // Get file size
     file.close();
 
-    long requiredMemory = fileSize * (1 + padding) * 2 + (500 * 1024 * 1024); // Memory required + 500 MB
+    long requiredMemory = fileSize * (1 + padding) * 2 + (5 * 1024 * 1024); // Memory required + 5 MB
     long long availableMemory =  getAvailableRAM(); // Memmory aviable
 
     if (requiredMemory > availableMemory) {
@@ -309,7 +302,8 @@ namespace fs = std::filesystem;
 //=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=
 class LCRYPT {
 public:
-    LCRYPT(const std::string& hashedPassword) : password(hashedPassword) {
+    LCRYPT(const std::string& hashedPassword, bool noCompression) 
+        : password(hashedPassword), noCompression(noCompression) {
         firstRound = hashPasswordRounds(password + password);
         secondRound = hashPasswordRounds(firstRound + firstRound);
         thirdRound = hashPasswordRounds(secondRound + secondRound);
@@ -358,7 +352,9 @@ public:
         // Continue with the nornal encryption process
         // Comprenssion
         std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Compressing..." << std::endl;
-        compressFile(inputFile); // Compress file/folder
+        if (!noCompression) {
+            compressFile(inputFile); // Compress file/folder only if -z parameter not used
+        }
 
         auto start = std::chrono::high_resolution_clock::now(); // Start timer
 
@@ -549,7 +545,9 @@ public:
 
         // Decompresion file/folder
         std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Decompressing...";
-        decompressFile(inputFile);
+        if (!noCompression) {
+            decompressFile(inputFile); // Decompress only for not -z parameter
+         }
 
         // Dele backup file
         std::string backupFile = inputFile + ".backup";
@@ -573,10 +571,8 @@ public:
 
 private:
     std::string password;
-    std::string firstRound;
-    std::string secondRound;
-    std::string thirdRound;
-    std::string fourthRound;
+    bool noCompression;
+    std::string firstRound, secondRound, thirdRound, fourthRound;
 
     // Argonnid hashing rounds
     std::string hashPasswordRounds(const std::string& password) {
@@ -1314,11 +1310,13 @@ void showHelp() {
               << "  -d <target>       Decrypt the specified file/folder\n"
               << "  -p <padding>      Specify the padding (0-∞)\n"
               << "  -P <password>     Specify the password <Plain/File>\n"
+              << "  -z                Disable compression during encryption/decryption\n"
               << "  --version         Show the current installed version\n"
               << "  -h                Display this help message\n"
               << "Examples:\n"
-              << "  c-lcrypt-e target -p 10 -P my_password\n"
-              << "  c-lcrypt -d target -p 10 -P my_password\n\n" 
+              << "  c-lcrypt -e target -p 10 -P my_password\n"
+              << "  c-lcrypt -d target -p 10 -P my_password\n"
+              << "  c-lcrypt -e target -p 10 -P my_password -z  (Disable compression)\n\n"
               << bcolors::GREEN << "If executed without arguments, interactive mode will start." << std::endl;
 } 
 
@@ -1351,6 +1349,7 @@ int main(int argc, char *argv[]) {
 
         std::string inputFile;
         int padding;
+        bool no_compression = false; // If -z, don't compress
 
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "+" << bcolors::WHITE << "]" << " Target name: ";
         std::cin >> inputFile;
@@ -1387,7 +1386,7 @@ int main(int argc, char *argv[]) {
         std::cout << bcolors::ORANGE;
         displayHashMaze(hashedPassword);
 
-        LCRYPT lcrypt(hashedPassword); // Create LCRYPT object with passwd
+        LCRYPT lcrypt(hashedPassword, no_compression); // Create LCRYPT object with passwd
 
         if (option == 1) {
             lcrypt.encrypt(inputFile, padding);
@@ -1401,6 +1400,7 @@ int main(int argc, char *argv[]) {
         int option = 0;
         std::string inputFile;
         std::string password;
+        bool no_compression = false; // If -z, don't compress
         int padding = 0;
 
         int opt;
@@ -1415,7 +1415,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        while ((opt = getopt(argc, argv, "e:d:p:P:h")) != -1) {
+        while ((opt = getopt(argc, argv, "e:d:p:P:zh")) != -1) {
             switch (opt) {
                 case 'e': // Encrypt
                     option = 1;
@@ -1428,24 +1428,27 @@ int main(int argc, char *argv[]) {
                 case 'p': // Padding
                     padding = std::stoi(optarg);
                     break;
-                    case 'P': // Password from file or plain text
-                    if (isFile(optarg)) {  // If argument: file
+                case 'P': // Password from file or plain text
+                    if (isFile(optarg)) {
                         std::ifstream passwordFile(optarg);
                         if (passwordFile) {
-                            std::getline(passwordFile, password);  // Read first line
+                            std::getline(passwordFile, password);
                             passwordFile.close();
                         } else {
                             std::cout << "Error: Cannot read password file." << std::endl;
                             return EXIT_FAILURE;
                         }
-                    } else {  // Si no es un archivo, tomarlo como contraseña directa
+                    } else {
                         password = optarg;
                     }
-                    break;          
+                    break;
+                case 'z': // No compression
+                    no_compression = true;
+                    break;
                 case 'h': // Show help
                     show_help = true;
                     break;
-                default: // Invalid option
+                default:
                     show_help = true;
                     break;
             }
@@ -1470,7 +1473,7 @@ int main(int argc, char *argv[]) {
         std::cout << bcolors::ORANGE;
         displayHashMaze(hashedPassword);
 
-        LCRYPT lcrypt(hashedPassword); // Create LCRYPT object with passwd
+        LCRYPT lcrypt(hashedPassword, no_compression); // Create LCRYPT object with passwd
 
 
         if (option == 1) {

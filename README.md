@@ -15,7 +15,7 @@ C-LCRYPT is a C++ encryption program that encrypts files at the binary level wit
 git clone https://github.com/Locotir/C-LCRYPT
 cd C-LCRYPT
 sudo pacman -Syu gcc openssl boost zlib zstd libsodium
-g++ -std=c++17 -O3 -march=native -mtune=native -pipe -flto=$(nproc) -funroll-loops -fomit-frame-pointer -fno-plt -ffast-math -o C-LCRYPT C-LCRYPT.cpp -lssl -lcrypto -lz -lboost_iostreams -lzstd -lsodium
+g++ -std=c++17 -O3 -pipe -flto=$(nproc) -funroll-loops -fomit-frame-pointer -fno-plt -ffast-math -o C-LCRYPT C-LCRYPT.cpp -lcrypto -lz -lboost_iostreams -lzstd -lsodium
 ./C-LCRYPT
 ```
 
@@ -26,19 +26,22 @@ yay -S c-lcrypt
 
 ### Execution Parameters
 ```
-Usage: ./C-LCRYPT [options]
-Options:
-  -e <target>       Encrypt the specified file/folder
-  -d <target>       Decrypt the specified file/folder
-  -p <padding>      Specify the padding (0-∞)
-  -P <password>     Specify the password <Plain/File>
-  --version         Show the current installed version
-  -h                Display this help message
-Examples:
-  ./C-LCRYPT -e target -p 10 -P my_password
-  ./C-LCRYPT -d target -p 10 -P my_password
+Usage: ./C-LCRYPT [options]  
+Options:  
+  -e <target>       Encrypt the specified file/folder  
+  -d <target>       Decrypt the specified file/folder  
+  -p <padding>      Specify the padding (0-∞)  
+  -P <password>     Specify the password <Plain/File>  
+  -z                Disable compression during encryption/decryption  
+  --version         Show the current installed version  
+  -h                Display this help message  
 
-If executed without arguments, interactive mode will start.
+Examples:  
+  ./C-LCRYPT -e target -p 10 -P my_password  
+  ./C-LCRYPT -d target -p 10 -P my_password  
+  ./C-LCRYPT -e target -p 10 -P my_password -z  (Disable compression)  
+
+If executed without arguments, interactive mode will start.  
 ```
 
 ### I take NO responsibility in misuse
