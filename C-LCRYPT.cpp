@@ -294,6 +294,24 @@ public:
 private:
     uint32_t state;
 };
+
+size_t computeNumericHash(const std::string &input) { // Hash -> int (32-bit & 64-bit compatible)
+    unsigned char digest[SHA256_DIGEST_LENGTH]; // Array to store the 32-byte (256-bit) SHA-256 hash
+    
+    SHA256(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest); // Compute the SHA-256 hash of the input string
+
+    uint32_t hashValue = 0; // Initialize the numeric hash value
+
+    // Convert the SHA-256 hash into a single integer value
+    for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+        hashValue = hashValue * 31u + digest[i]; // Mix bytes using prime number 31
+    }
+
+    // Return the computed hash as a size_t (compatible with 32-bit and 64-bit systems)
+    return static_cast<size_t>(hashValue);
+}
+
+
 // -=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=-
 
 namespace fs = std::filesystem;
@@ -318,7 +336,7 @@ public:
             file.close();
 
             long long availableMemory =  getAvailableRAM();  // Memmory aviable
-            long requiredMemory = fileSize * 2 * (1 + padding) + (500 * 1024 * 1024);
+            long requiredMemory = fileSize * 2 * (1 + padding) + (5 * 1024 * 1024);
             int numberOfParts = std::ceil((double)requiredMemory / availableMemory); // Calculate the number of parts required
             numberOfParts += 1;
             if (numberOfParts < 1) numberOfParts = 1;
@@ -351,8 +369,8 @@ public:
 
         // Continue with the nornal encryption process
         // Comprenssion
-        std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Compressing..." << std::endl;
         if (!noCompression) {
+            std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Compressing..." << std::endl;
             compressFile(inputFile); // Compress file/folder only if -z parameter not used
         }
 
@@ -379,9 +397,8 @@ public:
 
         // Shuffle each byte
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "@" << bcolors::WHITE << "]" << " Shuffling ~bytes";
-        std::hash<std::string> hashFn;
-        size_t passwordHash = hashFn(firstRound);
-        shuffleBytes(binary, passwordHash);
+        size_t firstPasswordHash = computeNumericHash(firstRound);
+        shuffleBytes(binary, firstPasswordHash);
         
 
         // Padding *bit
@@ -391,10 +408,10 @@ public:
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
-        auto substitutionTable = generateByteSubstitutionTable(thirdRound);
+        size_t thirdPasswordHash = computeNumericHash(thirdRound);
+        auto substitutionTable = generateByteSubstitutionTable(thirdPasswordHash);
         byteSubstitution(binary, substitutionTable);
         
-
         // XOR Key
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "^" << bcolors::WHITE << "]" << " Applying XOR Key";
         std::array<uint8_t, SHA256_DIGEST_LENGTH> hashedPassword = hashPassword(fourthRound); 
@@ -422,9 +439,8 @@ public:
             backup(inputFile); // Create a backup
 
             std::cout << bcolors::YELLOW << "! The file was split due to insufficient RAM during encryption process." << std::endl;
-
-            // Extract the parts (e.g., b_part_aa, b_part_ab, b_part_ac, ...)
-            std::vector<std::string> partFiles = extractFiles(inputFile); // This should return ["b_part_aa", "b_part_ab", ...]
+           
+            std::vector<std::string> partFiles = extractFiles(inputFile); // Extract the parts (e.g., file_part_aa, file_part_ab, file_part_ac, ...)
 
             // Decrypt the parts
             processFiles(partFiles, password, padding, false);
@@ -523,7 +539,8 @@ public:
 
         // Byte to Table byte reference
         std::cout << bcolors::WHITE << "\n[" << bcolors::VIOLET << "<->" << bcolors::WHITE << "]" << " Byte to Decimal Reference";
-        auto substitutionTable = generateByteSubstitutionTable(thirdRound);
+        size_t thirdPasswordHash = computeNumericHash(thirdRound);
+        auto substitutionTable = generateByteSubstitutionTable(thirdPasswordHash);
         auto inverseTable = generateInverseSubstitutionTable(substitutionTable);
         byteSubstitutionDecrypt(binary, inverseTable);
         
@@ -535,17 +552,16 @@ public:
 
         // Unshuffle
         std::cout << bcolors::WHITE << "\n[" << bcolors::RED << "@" << bcolors::WHITE << "]" << " Unshuffling inverted bytes";
-        std::hash<std::string> hashFn;
-        size_t passwordHash = hashFn(firstRound);
-        reverseByteShuffle(binary, passwordHash);
+        size_t firstPasswordHash = computeNumericHash(firstRound);
+        reverseByteShuffle(binary, firstPasswordHash);
         
 
         // Save to decompress
         saveToFile(inputFile, binary);
 
         // Decompresion file/folder
-        std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Decompressing...";
         if (!noCompression) {
+            std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Decompressing...";
             decompressFile(inputFile); // Decompress only for not -z parameter
          }
 
@@ -1093,14 +1109,14 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++ BYTE TABLE SUBSTITUTION ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-    std::array<uint8_t, 256> generateByteSubstitutionTable(const std::string& password) {     // Generate Table
+    std::array<uint8_t, 256> generateByteSubstitutionTable(size_t passwordHash) {
         std::array<uint8_t, 256> table;
-        std::iota(table.begin(), table.end(), 0); // Initialize table with 0-255 values
+        std::iota(table.begin(), table.end(), 0); // table: 0-255
 
-        std::default_random_engine generator(std::hash<std::string>{}(password)); // Generate seed with passwd
+        std::default_random_engine generator(passwordHash); // Use hash as seed
         std::shuffle(table.begin(), table.end(), generator); // Shuffle table
 
-        return table; 
+        return table;
     }
 
     std::array<uint8_t, 256> generateInverseSubstitutionTable(const std::array<uint8_t, 256>& table) {     // Generate inverse Table
@@ -1322,7 +1338,7 @@ void showHelp() {
 
 bool isFile(const std::string& path) { // Chech if -P (passwd) is a file
     struct stat buffer;
-    return (stat(path.c_str(), &buffer) == 0);  // Verifica si el archivo existe
+    return (stat(path.c_str(), &buffer) == 0);  // verify if file exists
 }
 
 int main(int argc, char *argv[]) {

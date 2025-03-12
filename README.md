@@ -15,7 +15,7 @@ C-LCRYPT is a C++ encryption program that encrypts files at the binary level wit
 git clone https://github.com/Locotir/C-LCRYPT
 cd C-LCRYPT
 sudo pacman -Syu gcc openssl boost zlib zstd libsodium
-g++ -std=c++17 -O3 -pipe -flto=$(nproc) -funroll-loops -fomit-frame-pointer -fno-plt -ffast-math -o C-LCRYPT C-LCRYPT.cpp -lcrypto -lz -lboost_iostreams -lzstd -lsodium
+g++ -std=c++17 -O3 -pipe -flto=$(nproc) -funroll-loops -fomit-frame-pointer -fno-plt -ffast-math -o C-LCRYPT C-LCRYPT.cpp -pthread -lcrypto -lz -lboost_iostreams -lzstd -lsodium
 ./C-LCRYPT
 ```
 
