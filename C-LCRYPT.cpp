@@ -655,19 +655,14 @@ private:
         if (!tar) {
             throw std::runtime_error("Failed to create tar file: " + tar_file.string());
         }
-    
+
         std::set<std::string> directories; // Para rastrear directorios ya archivados
-    
-        // Archivar si es un directorio
+
         if (fs::is_directory(input_path)) {
             std::string root_dir = input_path.filename().string() + "/";
-    
+
             // Archivar la carpeta raíz primero
             TarHeader root_header = {};
-            if (root_dir.size() > sizeof(root_header.name) - 1) {
-                throw std::runtime_error("Root directory path too long for tar: " + root_dir);
-            }
-    
             strncpy(root_header.name, root_dir.c_str(), sizeof(root_header.name) - 1);
             sprintf(root_header.mode, "%07o", 0755);
             sprintf(root_header.size, "%011lo", 0);
@@ -675,73 +670,90 @@ private:
             strcpy(root_header.magic, "ustar");
             strcpy(root_header.version, "00");
             root_header.typeflag[0] = '5'; // Directorio
-    
+
             unsigned int sum = 0;
             unsigned char* p = reinterpret_cast<unsigned char*>(&root_header);
             for (int i = 0; i < 512; ++i) {
                 sum += (i >= 148 && i < 156) ? ' ' : p[i];
             }
             sprintf(root_header.checksum, "%06o ", sum);
-    
+
             tar.write(reinterpret_cast<const char*>(&root_header), 512);
-    
-            // Archivar todos los directorios y archivos dentro de la carpeta
+
+            // Archivar contenido del directorio
             for (const auto& entry : fs::recursive_directory_iterator(input_path)) {
                 std::string relative_path = fs::relative(entry.path(), input_path).string();
                 std::string full_path = root_dir + relative_path;
-    
+
                 if (entry.is_directory()) {
                     std::string dir_path = full_path + "/";
                     if (directories.insert(dir_path).second) {
                         TarHeader header = {};
+                        std::string prefix;
+                        std::string name = dir_path;
                         if (dir_path.size() > sizeof(header.name) - 1) {
-                            throw std::runtime_error("Directory path too long for tar: " + dir_path);
+                            // Dividir en prefix y name si el path es muy largo
+                            size_t split_pos = dir_path.find_last_of('/', sizeof(header.name) - 2);
+                            prefix = dir_path.substr(0, split_pos);
+                            name = dir_path.substr(split_pos + 1);
+                            if (prefix.size() > sizeof(header.prefix) - 1 || name.size() > sizeof(header.name) - 1) {
+                                throw std::runtime_error("Directory path too long for tar: " + dir_path);
+                            }
+                            strncpy(header.prefix, prefix.c_str(), sizeof(header.prefix) - 1);
                         }
-                        strncpy(header.name, dir_path.c_str(), sizeof(header.name) - 1);
+                        strncpy(header.name, name.c_str(), sizeof(header.name) - 1);
                         sprintf(header.mode, "%07o", 0755);
                         sprintf(header.size, "%011lo", 0);
                         sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(entry.path()).time_since_epoch().count() / 1000000000);
                         strcpy(header.magic, "ustar");
                         strcpy(header.version, "00");
                         header.typeflag[0] = '5'; // Directorio
-    
+
                         sum = 0;
                         p = reinterpret_cast<unsigned char*>(&header);
                         for (int i = 0; i < 512; ++i) {
                             sum += (i >= 148 && i < 156) ? ' ' : p[i];
                         }
                         sprintf(header.checksum, "%06o ", sum);
-    
+
                         tar.write(reinterpret_cast<const char*>(&header), 512);
                     }
                 } else if (entry.is_regular_file()) {
                     TarHeader header = {};
+                    std::string prefix;
+                    std::string name = full_path;
                     if (full_path.size() > sizeof(header.name) - 1) {
-                        throw std::runtime_error("File path too long for tar: " + full_path);
+                        size_t split_pos = full_path.find_last_of('/', sizeof(header.name) - 2);
+                        prefix = full_path.substr(0, split_pos);
+                        name = full_path.substr(split_pos + 1);
+                        if (prefix.size() > sizeof(header.prefix) - 1 || name.size() > sizeof(header.name) - 1) {
+                            throw std::runtime_error("File path too long for tar: " + full_path);
+                        }
+                        strncpy(header.prefix, prefix.c_str(), sizeof(header.prefix) - 1);
                     }
-                    strncpy(header.name, full_path.c_str(), sizeof(header.name) - 1);
+                    strncpy(header.name, name.c_str(), sizeof(header.name) - 1);
                     sprintf(header.mode, "%07o", 0644);
                     sprintf(header.size, "%011lo", (unsigned long)fs::file_size(entry.path()));
                     sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(entry.path()).time_since_epoch().count() / 1000000000);
                     strcpy(header.magic, "ustar");
                     strcpy(header.version, "00");
                     header.typeflag[0] = '0'; // Archivo regular
-    
+
                     sum = 0;
                     p = reinterpret_cast<unsigned char*>(&header);
                     for (int i = 0; i < 512; ++i) {
                         sum += (i >= 148 && i < 156) ? ' ' : p[i];
                     }
                     sprintf(header.checksum, "%06o ", sum);
-    
+
                     tar.write(reinterpret_cast<const char*>(&header), 512);
-    
+
                     std::ifstream file(entry.path(), std::ios::binary);
                     if (!file) {
                         throw std::runtime_error("Failed to open file: " + entry.path().string());
                     }
                     tar << file.rdbuf();
-    
+
                     size_t bytes_written = fs::file_size(entry.path());
                     size_t padding = (512 - (bytes_written % 512)) % 512;
                     char zero[512] = {0};
@@ -749,10 +761,9 @@ private:
                 }
             }
         } else {
-            // Archive individual file
+            // Archivar archivo individual
             TarHeader header = {};
             std::string filename = input_path.filename().string();
-            std::cout << "Archiving: " << filename << "\n";
             strncpy(header.name, filename.c_str(), sizeof(header.name) - 1);
             sprintf(header.mode, "%07o", 0644);
             sprintf(header.size, "%011lo", (unsigned long)fs::file_size(input_path));
@@ -760,69 +771,76 @@ private:
             strcpy(header.magic, "ustar");
             strcpy(header.version, "00");
             header.typeflag[0] = '0'; // Archivo regular
-    
+
             unsigned int sum = 0;
             unsigned char* p = reinterpret_cast<unsigned char*>(&header);
             for (int i = 0; i < 512; ++i) {
                 sum += (i >= 148 && i < 156) ? ' ' : p[i];
             }
             sprintf(header.checksum, "%06o ", sum);
-    
+
             tar.write(reinterpret_cast<const char*>(&header), 512);
-    
+
             std::ifstream file(input_path, std::ios::binary);
             if (!file) {
                 throw std::runtime_error("Failed to open file: " + input_path.string());
             }
             tar << file.rdbuf();
-    
+
             size_t bytes_written = fs::file_size(input_path);
             size_t padding = (512 - (bytes_written % 512)) % 512;
             char zero[512] = {0};
             tar.write(zero, padding);
         }
-    
+
         // Finalizar el TAR con bloques vacíos
         char zero[512] = {0};
         tar.write(zero, 512);
         tar.write(zero, 512);
     }
-    
+        
 
     void extract_tar_archive(const fs::path& tar_file, const fs::path& output_dir) {
         std::ifstream tar(tar_file, std::ios::binary);
         if (!tar) {
             throw std::runtime_error("Failed to open tar file: " + tar_file.string());
         }
-    
+
         fs::create_directories(output_dir);
-    
+
         while (tar) {
             TarHeader header;
             tar.read(reinterpret_cast<char*>(&header), 512);
             if (!tar || std::string(header.name).empty()) break;
-    
-            unsigned long size = std::strtoul(header.size, nullptr, 8);
-            std::string file_path = (output_dir / header.name).string();
-    
+
+            // Combinar prefix y name si prefix no está vacío
+            std::string name = header.name;
+            if (header.prefix[0] != '\0') {
+                name = std::string(header.prefix) + "/" + name;
+            }
+
+            std::string file_path = (output_dir / name).string();
+
             if (header.typeflag[0] == '5') { // Directorio
                 fs::create_directories(file_path);
                 // No hay datos para leer, solo avanzamos
             } else if (header.typeflag[0] == '0' || header.typeflag[0] == '\0') { // Archivo regular
                 fs::create_directories(fs::path(file_path).parent_path());
-    
+
                 std::ofstream file(file_path, std::ios::binary);
                 if (!file) {
                     throw std::runtime_error("Failed to create file: " + file_path);
                 }
-    
+
+                unsigned long size = std::strtoul(header.size, nullptr, 8);
                 std::vector<char> buffer(size);
                 tar.read(buffer.data(), size);
                 file.write(buffer.data(), size);
-    
+
                 size_t padding = (512 - (size % 512)) % 512;
                 tar.seekg(padding, std::ios::cur);
             } else {
+                unsigned long size = std::strtoul(header.size, nullptr, 8);
                 tar.seekg((size + 511) / 512 * 512, std::ios::cur); // Saltar otros tipos
             }
         }
