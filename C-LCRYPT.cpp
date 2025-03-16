@@ -8,7 +8,6 @@
 #include <algorithm>                              // Offers a collection of algorithms (e.g., sorting, searching).
 #include <sstream>                                // Facilitates string stream operations for manipulating strings as streams.
 #include <filesystem>                             // Introduces facilities for file system operations (directories, paths).
-#include <openssl/sha.h>                          // Contains functions for SHA hashing using the OpenSSL library.
 #include <cstring>                                // Provides functions for handling C-style strings (e.g., strcpy, strlen).
 #include <limits>                                 // Defines characteristics of fundamental data types (e.g., min/max values).
 #include <termios.h>                              // Provides an interface for terminal I/O attributes (for controlling terminal settings).
@@ -17,16 +16,16 @@
 #include <sys/sysinfo.h>                          // Contains definitions for obtaining system information (e.g., memory usage, uptime).
 #include <omp.h>                                  // Provides support for multi-platform shared memory multiprocessing programming in C++.
 #include <array>                                  // Implements the array container for fixed-size array handling.
+#include <cstdint>                                // Provides fixed-width integer types like int32_t, uint64_t, etc.
 #include <cstdio>                                 // Offers standard input/output functions like printf and scanf.
 #include <csignal>                                // Provides functions to handle asynchronous events (signals).
 #include <cstdlib>                                // Provides functions for memory allocation, process control, and conversions.
 #include <stdexcept>                              // Contains standard exception classes for error handling.
 #include <future>                                 // Provides support for asynchronous programming and future/promise functionality.
-#include <zstd.h>                                 // Provides functions for data compression and decompression using the Zstandard library.
-#include <boost/iostreams/device/mapped_file.hpp> // Facilitates memory-mapped file I/O using the Boost Iostreams library.
-#include <sodium.h>                               // Provides functions for cryptographic operations, including password hashing and encryption, from the libsodium library.
+#include <fcntl.h>                                // Defines constants and functions for file control operations, such as open(), O_RDONLY, etc.
+#include <sys/mman.h>                             // Provides memory-mapping functions such as mmap(), munmap(), and memory protection constants like PROT_READ and MAP_PRIVATE.
 
-#define VERSION "v3.0.0\n"
+#define VERSION "v4.0.0\n"
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Color codes class ++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 class bcolors {
@@ -58,6 +57,148 @@ const std::string bcolors::BLACK = "\033[30m";
 const std::string RESET = "\033[0m";
 // --------------------------------------------------------------------------------------------------------------------------------------
 
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++ SHA 256 class ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+// Define SHA-256 digest length constant
+constexpr size_t SHA256_DIGEST_LENGTH = 32;
+
+// Standalone SHA-256 helper function: Rotate right
+uint32_t rotr(uint32_t x, unsigned int n) {
+    return (x >> n) | (x << (32 - n));
+}
+
+// Standalone SHA-256 implementation returning binary digest
+std::array<uint8_t, SHA256_DIGEST_LENGTH> sha256(const std::string &input) {
+    // Compression function constants
+    uint32_t k[64] = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    };
+
+    // Initial hash values
+    uint32_t h0 = 0x6a09e667;
+    uint32_t h1 = 0xbb67ae85;
+    uint32_t h2 = 0x3c6ef372;
+    uint32_t h3 = 0xa54ff53a;
+    uint32_t h4 = 0x510e527f;
+    uint32_t h5 = 0x9b05688c;
+    uint32_t h6 = 0x1f83d9ab;
+    uint32_t h7 = 0x5be0cd19;
+
+    // Pre-processing: Padding
+    std::vector<uint8_t> msg(input.begin(), input.end());
+    msg.push_back(0x80);
+    while ((msg.size() * 8) % 512 != 448) {
+        msg.push_back(0x00);
+    }
+    uint64_t bit_len = input.size() * 8;
+    for (int i = 7; i >= 0; i--) {
+        msg.push_back((bit_len >> (i * 8)) & 0xff);
+    }
+
+    // Process message in 512-bit (64-byte) blocks
+    for (size_t chunk = 0; chunk < msg.size(); chunk += 64) {
+        uint32_t w[64];
+        for (int i = 0; i < 16; i++) {
+            w[i] = (msg[chunk + i * 4] << 24) | (msg[chunk + i * 4 + 1] << 16) |
+                   (msg[chunk + i * 4 + 2] << 8) | (msg[chunk + i * 4 + 3]);
+        }
+        for (int i = 16; i < 64; i++) {
+            uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+            uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+
+        uint32_t a = h0;
+        uint32_t b = h1;
+        uint32_t c = h2;
+        uint32_t d = h3;
+        uint32_t e = h4;
+        uint32_t f = h5;
+        uint32_t g = h6;
+        uint32_t h = h7;
+
+        for (int i = 0; i < 64; i++) {
+            uint32_t S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            uint32_t ch = (e & f) ^ ((~e) & g);
+            uint32_t temp1 = h + S1 + ch + k[i] + w[i];
+            uint32_t S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+            uint32_t temp2 = S0 + maj;
+
+            h = g;
+            g = f;
+            f = e;
+            e = d + temp1;
+            d = c;
+            c = b;
+            b = a;
+            a = temp1 + temp2;
+        }
+
+        h0 += a;
+        h1 += b;
+        h2 += c;
+        h3 += d;
+        h4 += e;
+        h5 += f;
+        h6 += g;
+        h7 += h;
+    }
+
+    // Construct binary digest in big-endian order
+    std::array<uint8_t, SHA256_DIGEST_LENGTH> digest;
+    auto to_big_endian = [](uint32_t value, uint8_t* buffer) {
+        buffer[0] = (value >> 24) & 0xFF;
+        buffer[1] = (value >> 16) & 0xFF;
+        buffer[2] = (value >> 8) & 0xFF;
+        buffer[3] = value & 0xFF;
+    };
+    to_big_endian(h0, &digest[0]);
+    to_big_endian(h1, &digest[4]);
+    to_big_endian(h2, &digest[8]);
+    to_big_endian(h3, &digest[12]);
+    to_big_endian(h4, &digest[16]);
+    to_big_endian(h5, &digest[20]);
+    to_big_endian(h6, &digest[24]);
+    to_big_endian(h7, &digest[28]);
+    return digest;
+}
+std::string toHexString(const std::array<uint8_t, 32>& digest) {
+    std::ostringstream oss;
+    for (uint8_t byte : digest) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
+    }
+    return oss.str();
+}
+
+std::pair<int, int> countLettersAndDigits(const std::string& hexHash) {
+    int letters = 0;
+    int digits = 0;
+    for (char c : hexHash) {
+        if (std::isalpha(c)) {
+            letters++;
+        } else if (std::isdigit(c)) {
+            digits++;
+        }
+    }
+    return {letters, digits};
+}
+// --------------------------------------------------------------------------------------------------------------------------------
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ MEMORY CHECKING ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 long long getAvailableRAM() {
@@ -115,14 +256,11 @@ std::vector<std::string> splitFile(const std::string& filename, long partSize) {
 
 // Get the path of the executable
 std::string getExecutablePath() {
-    char exePath[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
-
-    if (len != -1) {
-        exePath[len] = '\0'; // Null-terminate the path
-        return std::string(exePath);
-    } else {
-        std::cerr << "Error getting executable path" << std::endl;
+    try {
+        std::filesystem::path exePath = std::filesystem::canonical("/proc/self/exe");
+        return exePath.string();
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Error getting executable path: " << e.what() << std::endl;
         return "";
     }
 }
@@ -295,22 +433,15 @@ private:
     uint32_t state;
 };
 
+
 size_t computeNumericHash(const std::string &input) { // Hash -> int (32-bit & 64-bit compatible)
-    unsigned char digest[SHA256_DIGEST_LENGTH]; // Array to store the 32-byte (256-bit) SHA-256 hash
-    
-    SHA256(reinterpret_cast<const unsigned char*>(input.data()), input.size(), digest); // Compute the SHA-256 hash of the input string
-
-    uint32_t hashValue = 0; // Initialize the numeric hash value
-
-    // Convert the SHA-256 hash into a single integer value
+    auto digest = sha256(input); // Compute the SHA-256 hash of the input string
+    uint32_t hashValue = 0;
     for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-        hashValue = hashValue * 31u + digest[i]; // Mix bytes using prime number 31
+        hashValue = hashValue * 31u + digest[i];
     }
-
-    // Return the computed hash as a size_t (compatible with 32-bit and 64-bit systems)
     return static_cast<size_t>(hashValue);
 }
-
 
 // -=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=--=-=-
 
@@ -320,8 +451,8 @@ namespace fs = std::filesystem;
 //=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=
 class LCRYPT {
 public:
-    LCRYPT(const std::string& hashedPassword, bool noCompression) 
-        : password(hashedPassword), noCompression(noCompression) {
+    LCRYPT(const std::string& hashedPassword) 
+        : password(hashedPassword) {
         firstRound = hashPasswordRounds(password + password);
         secondRound = hashPasswordRounds(firstRound + firstRound);
         thirdRound = hashPasswordRounds(secondRound + secondRound);
@@ -368,13 +499,6 @@ public:
         }
 
         // Continue with the nornal encryption process
-        // Comprenssion
-        if (!noCompression) {
-            std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Compressing..." << std::endl;
-            compressFile(inputFile); // Compress file/folder only if -z parameter not used
-        }
-
-        auto start = std::chrono::high_resolution_clock::now(); // Start timer
 
         // Load File to RAM
         auto fileSize = fs::file_size(inputFile);
@@ -421,15 +545,7 @@ public:
         // Finish & save
         saveToFile(inputFile, binary);
         std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]" << " Encrypted target saved as: " << inputFile << std::endl;
-        auto end = std::chrono::high_resolution_clock::now(); // Stop timer
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
-        long seconds = duration / 1000;
-        long milliseconds = duration % 1000;
-        long minutes = seconds / 60;
-        seconds %= 60;
-
-        std::cout << bcolors::WHITE << "\n" << minutes << "m | " << seconds << "s | " << milliseconds << "ms\n\n";
 
     }
 
@@ -506,7 +622,6 @@ public:
 
 
         // Continue with the normal decryption process
-        auto start = std::chrono::high_resolution_clock::now(); // Start timer
         auto fileSize = fs::file_size(inputFile);
         (inputFile); // Save backup file in case of failure
 
@@ -559,60 +674,33 @@ public:
         // Save to decompress
         saveToFile(inputFile, binary);
 
-        // Decompresion file/folder
-        if (!noCompression) {
-            std::cout << bcolors::WHITE << "\n[" << bcolors::BLUE << "%" << bcolors::WHITE << "]" << " Decompressing...";
-            decompressFile(inputFile); // Decompress only for not -z parameter
-         }
-
         // Dele backup file
         std::string backupFile = inputFile + ".backup";
         std::remove(backupFile.c_str());
 
         // Finish
         std::cout << bcolors::WHITE << "\n\n[" << bcolors::GREEN << "=" << bcolors::WHITE << "]" << " Decrypted target saved as: " << inputFile << std::endl;
-        auto end = std::chrono::high_resolution_clock::now(); // Stop timer
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-
-        long seconds = duration / 1000;
-        long milliseconds = duration % 1000;
-        long minutes = seconds / 60;
-        seconds %= 60;
-
-        std::cout << bcolors::WHITE << "\n" << minutes << "m | " << seconds << "s | " << milliseconds << "ms\n\n";
     }
 
 //=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=-#=
-
 
 private:
     std::string password;
     bool noCompression;
     std::string firstRound, secondRound, thirdRound, fourthRound;
 
-    // Argonnid hashing rounds
     std::string hashPasswordRounds(const std::string& password) {
-        const size_t HASH_LEN = 32;  
-        const size_t OPS_LIMIT = crypto_pwhash_OPSLIMIT_INTERACTIVE; 
-        const size_t MEM_LIMIT = crypto_pwhash_MEMLIMIT_INTERACTIVE; 
-        const int ALG = crypto_pwhash_ALG_ARGON2ID13; 
+        const size_t ROUNDS = 10000; // number of iterations
+        std::array<uint8_t, 32> currentHash = sha256(password);
 
-        unsigned char hash[HASH_LEN]; 
-
-        unsigned char salt[crypto_pwhash_SALTBYTES];
-        crypto_generichash(salt, sizeof(salt), reinterpret_cast<const unsigned char*>(password.c_str()), password.size(), nullptr, 0);
-
-        if (crypto_pwhash(hash, HASH_LEN, password.c_str(), password.size(), salt,
-                          OPS_LIMIT, MEM_LIMIT, ALG) != 0) {
-            throw std::runtime_error("Error: Not enough memory for hashing.");
+        // Iterate on rounds
+        for (size_t i = 0; i < ROUNDS; ++i) {
+            std::string hexHash = toHexString(currentHash);
+            std::string toHash = hexHash + password; // Combine with actual passwd
+            currentHash = sha256(toHash);
         }
 
-        std::ostringstream oss;
-        for (size_t i = 0; i < HASH_LEN; ++i) {
-            oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-        }
-
-        return oss.str(); 
+        return toHexString(currentHash);
     }
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Print Bit Chain (debugging) ++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -629,357 +717,38 @@ private:
 // --------------------------------------------------------------------------------------------------------------------------------------
 
 
-// ++++++++++++++++++++++++++++++++++++++++++++++++++++ Compressing / Decompressing ++++++++++++++++++++++++++++++++++++++++++++++++++++
-    struct TarHeader {
-        char name[100];
-        char mode[8];
-        char uid[8];
-        char gid[8];
-        char size[12];
-        char mtime[12];
-        char checksum[8];
-        char typeflag[1];
-        char linkname[100];
-        char magic[6];
-        char version[2];
-        char uname[32];
-        char gname[32];
-        char devmajor[8];
-        char devminor[8];
-        char prefix[155];
-        char pad[12];
-    };
-
-    void create_tar_archive(const fs::path& input_path, const fs::path& tar_file) {
-        std::ofstream tar(tar_file, std::ios::binary);
-        if (!tar) {
-            throw std::runtime_error("Failed to create tar file: " + tar_file.string());
-        }
-
-        std::set<std::string> directories; // Para rastrear directorios ya archivados
-
-        if (fs::is_directory(input_path)) {
-            std::string root_dir = input_path.filename().string() + "/";
-
-            // Archivar la carpeta raíz primero
-            TarHeader root_header = {};
-            strncpy(root_header.name, root_dir.c_str(), sizeof(root_header.name) - 1);
-            sprintf(root_header.mode, "%07o", 0755);
-            sprintf(root_header.size, "%011lo", 0);
-            sprintf(root_header.mtime, "%011lo", (unsigned long)fs::last_write_time(input_path).time_since_epoch().count() / 1000000000);
-            strcpy(root_header.magic, "ustar");
-            strcpy(root_header.version, "00");
-            root_header.typeflag[0] = '5'; // Directorio
-
-            unsigned int sum = 0;
-            unsigned char* p = reinterpret_cast<unsigned char*>(&root_header);
-            for (int i = 0; i < 512; ++i) {
-                sum += (i >= 148 && i < 156) ? ' ' : p[i];
-            }
-            sprintf(root_header.checksum, "%06o ", sum);
-
-            tar.write(reinterpret_cast<const char*>(&root_header), 512);
-
-            // Archivar contenido del directorio
-            for (const auto& entry : fs::recursive_directory_iterator(input_path)) {
-                std::string relative_path = fs::relative(entry.path(), input_path).string();
-                std::string full_path = root_dir + relative_path;
-
-                if (entry.is_directory()) {
-                    std::string dir_path = full_path + "/";
-                    if (directories.insert(dir_path).second) {
-                        TarHeader header = {};
-                        std::string prefix;
-                        std::string name = dir_path;
-                        if (dir_path.size() > sizeof(header.name) - 1) {
-                            // Dividir en prefix y name si el path es muy largo
-                            size_t split_pos = dir_path.find_last_of('/', sizeof(header.name) - 2);
-                            prefix = dir_path.substr(0, split_pos);
-                            name = dir_path.substr(split_pos + 1);
-                            if (prefix.size() > sizeof(header.prefix) - 1 || name.size() > sizeof(header.name) - 1) {
-                                throw std::runtime_error("Directory path too long for tar: " + dir_path);
-                            }
-                            strncpy(header.prefix, prefix.c_str(), sizeof(header.prefix) - 1);
-                        }
-                        strncpy(header.name, name.c_str(), sizeof(header.name) - 1);
-                        sprintf(header.mode, "%07o", 0755);
-                        sprintf(header.size, "%011lo", 0);
-                        sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(entry.path()).time_since_epoch().count() / 1000000000);
-                        strcpy(header.magic, "ustar");
-                        strcpy(header.version, "00");
-                        header.typeflag[0] = '5'; // Directorio
-
-                        sum = 0;
-                        p = reinterpret_cast<unsigned char*>(&header);
-                        for (int i = 0; i < 512; ++i) {
-                            sum += (i >= 148 && i < 156) ? ' ' : p[i];
-                        }
-                        sprintf(header.checksum, "%06o ", sum);
-
-                        tar.write(reinterpret_cast<const char*>(&header), 512);
-                    }
-                } else if (entry.is_regular_file()) {
-                    TarHeader header = {};
-                    std::string prefix;
-                    std::string name = full_path;
-                    if (full_path.size() > sizeof(header.name) - 1) {
-                        size_t split_pos = full_path.find_last_of('/', sizeof(header.name) - 2);
-                        prefix = full_path.substr(0, split_pos);
-                        name = full_path.substr(split_pos + 1);
-                        if (prefix.size() > sizeof(header.prefix) - 1 || name.size() > sizeof(header.name) - 1) {
-                            throw std::runtime_error("File path too long for tar: " + full_path);
-                        }
-                        strncpy(header.prefix, prefix.c_str(), sizeof(header.prefix) - 1);
-                    }
-                    strncpy(header.name, name.c_str(), sizeof(header.name) - 1);
-                    sprintf(header.mode, "%07o", 0644);
-                    sprintf(header.size, "%011lo", (unsigned long)fs::file_size(entry.path()));
-                    sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(entry.path()).time_since_epoch().count() / 1000000000);
-                    strcpy(header.magic, "ustar");
-                    strcpy(header.version, "00");
-                    header.typeflag[0] = '0'; // Archivo regular
-
-                    sum = 0;
-                    p = reinterpret_cast<unsigned char*>(&header);
-                    for (int i = 0; i < 512; ++i) {
-                        sum += (i >= 148 && i < 156) ? ' ' : p[i];
-                    }
-                    sprintf(header.checksum, "%06o ", sum);
-
-                    tar.write(reinterpret_cast<const char*>(&header), 512);
-
-                    std::ifstream file(entry.path(), std::ios::binary);
-                    if (!file) {
-                        throw std::runtime_error("Failed to open file: " + entry.path().string());
-                    }
-                    tar << file.rdbuf();
-
-                    size_t bytes_written = fs::file_size(entry.path());
-                    size_t padding = (512 - (bytes_written % 512)) % 512;
-                    char zero[512] = {0};
-                    tar.write(zero, padding);
-                }
-            }
-        } else {
-            // Archivar archivo individual
-            TarHeader header = {};
-            std::string filename = input_path.filename().string();
-            strncpy(header.name, filename.c_str(), sizeof(header.name) - 1);
-            sprintf(header.mode, "%07o", 0644);
-            sprintf(header.size, "%011lo", (unsigned long)fs::file_size(input_path));
-            sprintf(header.mtime, "%011lo", (unsigned long)fs::last_write_time(input_path).time_since_epoch().count() / 1000000000);
-            strcpy(header.magic, "ustar");
-            strcpy(header.version, "00");
-            header.typeflag[0] = '0'; // Archivo regular
-
-            unsigned int sum = 0;
-            unsigned char* p = reinterpret_cast<unsigned char*>(&header);
-            for (int i = 0; i < 512; ++i) {
-                sum += (i >= 148 && i < 156) ? ' ' : p[i];
-            }
-            sprintf(header.checksum, "%06o ", sum);
-
-            tar.write(reinterpret_cast<const char*>(&header), 512);
-
-            std::ifstream file(input_path, std::ios::binary);
-            if (!file) {
-                throw std::runtime_error("Failed to open file: " + input_path.string());
-            }
-            tar << file.rdbuf();
-
-            size_t bytes_written = fs::file_size(input_path);
-            size_t padding = (512 - (bytes_written % 512)) % 512;
-            char zero[512] = {0};
-            tar.write(zero, padding);
-        }
-
-        // Finalizar el TAR con bloques vacíos
-        char zero[512] = {0};
-        tar.write(zero, 512);
-        tar.write(zero, 512);
-    }
-        
-
-    void extract_tar_archive(const fs::path& tar_file, const fs::path& output_dir) {
-        std::ifstream tar(tar_file, std::ios::binary);
-        if (!tar) {
-            throw std::runtime_error("Failed to open tar file: " + tar_file.string());
-        }
-
-        fs::create_directories(output_dir);
-
-        while (tar) {
-            TarHeader header;
-            tar.read(reinterpret_cast<char*>(&header), 512);
-            if (!tar || std::string(header.name).empty()) break;
-
-            // Combinar prefix y name si prefix no está vacío
-            std::string name = header.name;
-            if (header.prefix[0] != '\0') {
-                name = std::string(header.prefix) + "/" + name;
-            }
-
-            std::string file_path = (output_dir / name).string();
-
-            if (header.typeflag[0] == '5') { // Directorio
-                fs::create_directories(file_path);
-                // No hay datos para leer, solo avanzamos
-            } else if (header.typeflag[0] == '0' || header.typeflag[0] == '\0') { // Archivo regular
-                fs::create_directories(fs::path(file_path).parent_path());
-
-                std::ofstream file(file_path, std::ios::binary);
-                if (!file) {
-                    throw std::runtime_error("Failed to create file: " + file_path);
-                }
-
-                unsigned long size = std::strtoul(header.size, nullptr, 8);
-                std::vector<char> buffer(size);
-                tar.read(buffer.data(), size);
-                file.write(buffer.data(), size);
-
-                size_t padding = (512 - (size % 512)) % 512;
-                tar.seekg(padding, std::ios::cur);
-            } else {
-                unsigned long size = std::strtoul(header.size, nullptr, 8);
-                tar.seekg((size + 511) / 512 * 512, std::ios::cur); // Saltar otros tipos
-            }
-        }
-    }
-
-    // Función para leer un archivo completo en un vector de bytes
-    std::vector<char> readFile(const std::string& filePath) {
-        std::ifstream file(filePath, std::ios::binary);
-        return std::vector<char>((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    }
-
-    // Función para escribir un vector de bytes en un archivo
-    void writeFile(const std::string& filePath, const std::vector<char>& data) {
-        std::ofstream file(filePath, std::ios::binary);
-        file.write(data.data(), data.size());
-    }
-
-    // Función para formatear el tamaño del archivo
-    std::string formatFileSize(size_t size) {
-        std::ostringstream oss;
-        if (size >= (1 << 30)) {
-            oss << (size >> 30) << " GiB";
-        } else if (size >= (1 << 20)) {
-            oss << (size >> 20) << " MiB";
-        } else if (size >= (1 << 10)) {
-            oss << (size >> 10) << " KiB";
-        } else {
-            oss << size << " bytes";
-        }
-        return oss.str();
-    }
-
-    // Función para comprimir un archivo o directorio
-    void compressFile(const std::string& inputFile) {
-        if (!fs::exists(inputFile) || (fs::is_directory(inputFile) && fs::is_empty(inputFile))) return;
-    
-        fs::path inputPath(inputFile);
-        fs::path absolutePath = fs::absolute(inputPath);
-        std::string directory = absolutePath.parent_path().string();
-        std::string fileName = absolutePath.filename().string();
-    
-        if (!fs::exists(directory)) {
-            std::cerr << "Directory does not exist: " << directory << std::endl;
-            return;
-        }
-    
-        auto currentPath = fs::current_path();
-        fs::current_path(directory);
-    
-        std::string tarFile = fileName + ".tar";
-        std::string zstdFile = fileName + ".zst";
-    
-        create_tar_archive(absolutePath, tarFile);
-    
-        auto originalSize = fs::file_size(tarFile);
-    
-        std::vector<char> fileData = readFile(tarFile);
-        size_t compressedSize = ZSTD_compressBound(fileData.size());
-        std::vector<char> compressedData(compressedSize);
-    
-        compressedSize = ZSTD_compress(compressedData.data(), compressedSize, fileData.data(), fileData.size(), 3);
-        if (ZSTD_isError(compressedSize)) {
-            std::cerr << "Compression error: " << ZSTD_getErrorName(compressedSize) << std::endl;
-            fs::current_path(currentPath);
-            return;
-        }
-    
-        compressedData.resize(compressedSize);
-        writeFile(zstdFile, compressedData);
-        fs::remove(tarFile);
-        fs::remove_all(fileName);
-        fs::rename(zstdFile, fileName);
-    
-        fs::current_path(currentPath);
-    
-        auto compressedFileSize = compressedData.size();
-        int reductionPercentage = static_cast<int>(100.0 * (originalSize - compressedFileSize) / originalSize);
-        std::cout << "    ↳ Reduced ~" 
-                  << std::fixed << std::setprecision(2) << reductionPercentage 
-                  << "% => " << std::fixed << std::setprecision(0) 
-                  << formatFileSize(compressedFileSize) << " total bits" << std::endl;
-    }
-
-    // Función para descomprimir un archivo
-    void decompressFile(const std::string& inputFile) {
-        auto currentPath = fs::current_path();
-        try {
-            std::string zstdFile = inputFile + ".zst";
-            std::string tarFile = inputFile + ".tar";
-    
-            // Renombrar el archivo encriptado a .zst para procesarlo
-            fs::rename(inputFile, zstdFile);
-            std::vector<char> compressedData = readFile(zstdFile);
-    
-            unsigned long long decompressedSize = ZSTD_getFrameContentSize(compressedData.data(), compressedData.size());
-            if (decompressedSize == ZSTD_CONTENTSIZE_UNKNOWN) {
-                throw std::runtime_error("Incorrect password or padding");
-            }
-    
-            std::vector<char> decompressedData(decompressedSize);
-            decompressedSize = ZSTD_decompress(decompressedData.data(), decompressedSize, compressedData.data(), compressedData.size());
-            if (ZSTD_isError(decompressedSize)) {
-                throw std::runtime_error("Incorrect password or padding");
-            }
-    
-            // Escribir el .tar temporal
-            writeFile(tarFile, decompressedData);
-            fs::remove(zstdFile);
-    
-            // Determinar el directorio de salida
-            fs::path inputPath(inputFile);
-            fs::path outputDir = inputPath.parent_path(); // Directorio padre
-            if (outputDir.empty()) {
-                outputDir = "."; // Usar el directorio actual si no hay padre
-            }
-    
-            // Extraer el .tar en el directorio padre
-            extract_tar_archive(tarFile, outputDir);
-            fs::remove(tarFile);
-    
-            fs::current_path(currentPath);
-
-        } catch (const std::exception& e) {
-            std::cerr << "\n\n[" << bcolors::RED << "!" << bcolors::WHITE << "]" << " Error decompressing:" << bcolors::RED << " " << e.what() << bcolors::WHITE << "\n    ↳ Backup file saved as: " << bcolors::GREEN << inputFile << ".backup" << std::endl;
-            std::string zstdFile = inputFile + ".zst";
-            if (fs::exists(zstdFile)) fs::rename(zstdFile, inputFile);
-            fs::current_path(currentPath);
-            exit(1);
-        }
-    }
-// --------------------------------------------------------------------------------------------------------------------------------------
-
-
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++ Load File Bits To RAM +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
-    boost::iostreams::mapped_file mmap(filePath, boost::iostreams::mapped_file::readonly);
+    // Open the file
+    int fd = open(filePath.c_str(), O_RDONLY);
+    if (fd == -1) {
+        throw std::runtime_error("Error opening the file.");
+    }
 
-    // Vector with data
-    return std::vector<uint8_t>(mmap.const_data(), mmap.const_data() + mmap.size());
+    // Get the size of the file
+    struct stat fileStats;
+    if (fstat(fd, &fileStats) == -1) {
+        close(fd);
+        throw std::runtime_error("Error getting the file size.");
+    }
+
+    size_t fileSize = fileStats.st_size;
+
+    // Map the file into memory
+    uint8_t* data = (uint8_t*)mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (data == MAP_FAILED) {
+        close(fd);
+        throw std::runtime_error("Error mapping the file.");
+    }
+
+    // Create a vector with the mapped data
+    std::vector<uint8_t> result(data, data + fileSize);
+
+    // Unmap the file and close the file descriptor
+    munmap(data, fileSize);
+    close(fd);
+
+    return result;
 }
 // --------------------------------------------------------------------------------------------------------------------------------------
 
@@ -1043,7 +812,6 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
         // Swap the original data back into binaryData, replacing the padded data
         binaryData.swap(originalData);
     }
-
 
 // --------------------------------------------------------------------------------------------------------------------------------------
 
@@ -1206,18 +974,32 @@ std::vector<uint8_t> loadFileAsBits(const std::string& filePath) {
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ XOR Key +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ 
 
-    static std::array<uint8_t, SHA256_DIGEST_LENGTH> hashPassword(const std::string& password) {     // Hash password to uint8_t array
-        std::array<uint8_t, SHA256_DIGEST_LENGTH> hash;
-        SHA256(reinterpret_cast<const uint8_t*>(password.c_str()), password.size(), hash.data());
-        return hash; // Returns hash as an array
+    static std::array<uint8_t, SHA256_DIGEST_LENGTH> hashPassword(const std::string& password) {  // Hash password to uint8_t array
+        return sha256(password);
     }
 
-    // Generate XOR Key string with password hash
+    // Generate XOR Key string with password hash | non repetitive
     std::vector<uint8_t> generateXORKey(const std::array<uint8_t, SHA256_DIGEST_LENGTH>& passwordHash, size_t dataSize) {
-        std::vector<uint8_t> key(dataSize);
-        for (size_t i = 0; i < dataSize; ++i) {
-            key[i] = passwordHash[i % SHA256_DIGEST_LENGTH]; // Only use Hash
+        std::vector<uint8_t> key;
+        key.reserve(dataSize);
+
+        std::array<uint8_t, SHA256_DIGEST_LENGTH> currentHash = passwordHash;
+        
+        while (key.size() < dataSize) {
+            // Convert currentHash to a std::string
+            std::string hashStr(reinterpret_cast<const char*>(currentHash.data()), SHA256_DIGEST_LENGTH);
+            // Compute SHA-256 of hashStr
+            currentHash = sha256(hashStr);
+            // Append the new hash to the key
+            for (uint8_t byte : currentHash) {
+                if (key.size() < dataSize) {
+                    key.push_back(byte);
+                } else {
+                    break;
+                }
+            }
         }
+
         return key;
     }
 
@@ -1307,62 +1089,87 @@ void signalHandler(int signum) {
 }
 
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ Hash Password +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-std::string hashPassword(const std::string& password) {
-    const size_t HASH_LEN = 32;  // Desired length of the final hash
-    const size_t OPS_LIMIT = crypto_pwhash_OPSLIMIT_INTERACTIVE; // Interactive limit for Argon2id operations
-    const size_t MEM_LIMIT = crypto_pwhash_MEMLIMIT_INTERACTIVE; // Interactive memory limit for Argon2id
-    const int ALG = crypto_pwhash_ALG_ARGON2ID13; // Algorithm version: Argon2id
+void increaseMemoryUsage(std::string& toHash, const std::string& hexHash) {
+    // Use the hash as a seed for random number generation
+    std::seed_seq seed(hexHash.begin(), hexHash.end());
+    std::mt19937 rng(seed);
 
-    unsigned char hash[HASH_LEN]; // Buffer to hold the final Argon2id hash
+    // Define the character set (letters and digits)
+    std::string charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    // Derive a deterministic salt from the password
-    unsigned char salt[crypto_pwhash_SALTBYTES];
-    crypto_generichash(salt, sizeof(salt), reinterpret_cast<const unsigned char*>(password.c_str()), password.size(), nullptr, 0);
+    // Set the buffer size to exactly 1 MB in bytes
+    size_t bufferSize = 1024 * 1024; 
 
-    // Generate the Argon2id hash using the derived salt
-    if (crypto_pwhash(hash, HASH_LEN, password.c_str(), password.size(), salt,
-                      OPS_LIMIT, MEM_LIMIT, ALG) != 0) {
-        throw std::runtime_error("Error: Not enough memory for hashing.");
+    // Create buffer
+    std::vector<char> buffer(bufferSize);
+
+    // Fill the buffer with random characters from the charset
+    for (size_t i = 0; i < bufferSize; ++i) {
+        std::uniform_int_distribution<int> charDist(0, charset.size() - 1);
+        buffer[i] = charset[charDist(rng)];
     }
 
-    // Convert the final hash to a hexadecimal string
-    std::ostringstream oss;
-    for (size_t i = 0; i < HASH_LEN; ++i) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-
-    return oss.str(); // Return the hex string representation of the hash
+    // Append the buffer data to the string to increase its size
+    toHash += std::string(buffer.begin(), buffer.end());
 }
 
+// Function to hash a password multiple times while increasing memory usage
+std::string hashPassword(const std::string& password, size_t rounds = 1) {
+    // Calculate the initial hash of the password
+    std::array<uint8_t, 32> currentHash = sha256(password);
+    
+    // Perform multiple rounds of hashing, with increasing memory usage each time
+    for (size_t i = 0; i < rounds; ++i) {
+        // Convert the current hash to a hexadecimal string
+        std::string hexHash = toHexString(currentHash);
+        
+        // Increase memory usage in each iteration using the current hash as a seed
+        increaseMemoryUsage(hexHash, hexHash);
+        
+        // Count the number of letters and digits in the hexadecimal hash
+        auto [letters, digits] = countLettersAndDigits(hexHash);
+        
+        // Create a new string for the next hash by appending the counts of letters and digits
+        std::string toHash = hexHash + std::to_string(letters) + std::to_string(digits);
+        
+        // Recalculate the hash of the new string
+        currentHash = sha256(toHash);
+    }
+
+    // Return the final hash as a hexadecimal string
+    return toHexString(currentHash);
+}
 
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ Display  Help Message +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 void showHelp() {
     std::cout << "Usage: c-lcrypt [options]\n"
               << "Options:\n"
-              << "  -e <target>       Encrypt the specified file/folder\n"
-              << "  -d <target>       Decrypt the specified file/folder\n"
+              << "  -e <target>       Encrypt the specified file\n"
+              << "  -d <target>       Decrypt the specified file\n"
               << "  -p <padding>      Specify the padding (0-∞)\n"
               << "  -P <password>     Specify the password <Plain/File>\n"
-              << "  -z                Disable compression during encryption/decryption\n"
               << "  --version         Show the current installed version\n"
               << "  -h                Display this help message\n"
               << "Examples:\n"
               << "  c-lcrypt -e target -p 10 -P my_password\n"
               << "  c-lcrypt -d target -p 10 -P my_password\n"
-              << "  c-lcrypt -e target -p 10 -P my_password -z  (Disable compression)\n\n"
               << bcolors::GREEN << "If executed without arguments, interactive mode will start." << std::endl;
 } 
 
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ Chech File +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 bool isFile(const std::string& path) { // Chech if -P (passwd) is a file
     struct stat buffer;
     return (stat(path.c_str(), &buffer) == 0);  // verify if file exists
 }
 
+
+// ====================================================================== M A I N =====================================================================================
 int main(int argc, char *argv[]) {
-    
+
+    auto start = std::chrono::high_resolution_clock::now(); // Start timer
     std::signal(SIGINT, signalHandler); // Intercept CTL + C
-    
+
     if (argc == 1) { // Execute interactive program if not arguments
         int option;
         std::string password;
@@ -1383,7 +1190,6 @@ int main(int argc, char *argv[]) {
 
         std::string inputFile;
         int padding;
-        bool no_compression = false; // If -z, don't compress
 
         std::cout << bcolors::WHITE << "\n[" << bcolors::GREEN << "+" << bcolors::WHITE << "]" << " Target name: ";
         std::cin >> inputFile;
@@ -1420,7 +1226,7 @@ int main(int argc, char *argv[]) {
         std::cout << bcolors::ORANGE;
         displayHashMaze(hashedPassword);
 
-        LCRYPT lcrypt(hashedPassword, no_compression); // Create LCRYPT object with passwd
+        LCRYPT lcrypt(hashedPassword); // Create LCRYPT object with passwd
 
         if (option == 1) {
             lcrypt.encrypt(inputFile, padding);
@@ -1434,7 +1240,6 @@ int main(int argc, char *argv[]) {
         int option = 0;
         std::string inputFile;
         std::string password;
-        bool no_compression = false; // If -z, don't compress
         int padding = 0;
 
         int opt;
@@ -1476,9 +1281,6 @@ int main(int argc, char *argv[]) {
                         password = optarg;
                     }
                     break;
-                case 'z': // No compression
-                    no_compression = true;
-                    break;
                 case 'h': // Show help
                     show_help = true;
                     break;
@@ -1507,7 +1309,7 @@ int main(int argc, char *argv[]) {
         std::cout << bcolors::ORANGE;
         displayHashMaze(hashedPassword);
 
-        LCRYPT lcrypt(hashedPassword, no_compression); // Create LCRYPT object with passwd
+        LCRYPT lcrypt(hashedPassword); // Create LCRYPT object with passwd
 
 
         if (option == 1) {
@@ -1518,6 +1320,16 @@ int main(int argc, char *argv[]) {
             std::cerr << "No valid option." << std::endl;
             return 1;
         }
+
+        auto end = std::chrono::high_resolution_clock::now(); // Stop timer
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+        long seconds = duration / 1000;
+        long milliseconds = duration % 1000;
+        long minutes = seconds / 60;
+        seconds %= 60;
+
+        std::cout << bcolors::WHITE << "\n" << minutes << "m | " << seconds << "s | " << milliseconds << "ms\n\n";
     }
 
     return 0;

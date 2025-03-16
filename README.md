@@ -3,19 +3,19 @@
 **=== Remake of [LCRYPT](https://github.com/Locotir/LCRYPT) on C++ | Gained +99.68% performance | All I/O operations runs on RAM now ===**
 
 
-In the digital age, securing data at its core is crucial. C-LCRYPT offers a revolutionary encryption solution that protects data at the binary level, ensuring integrity and confidentiality. Unauthorized access is impossible without the decryption keys.
+In today's digital landscape, protecting data at its core is essential. C-LCRYPT provides a robust encryption solution that secures data at the binary level, ensuring both integrity and confidentiality. Without the correct decryption keys, unauthorized access is effectively prevented.
 
 ### Description
-C-LCRYPT is a C++ encryption program that encrypts files at the binary level with RAM-based I/O. It features byte shuffling, binary reversal, bit insertion, byte substitution using a randomized table, and XOR key encryption. This method provides top-tier security, making data indecipherable without the correct keys and resisting reverse engineering. Even with the C-LCRYPT tool, brute force decryption is impractical due to the vast number of possible combinations and required computational resources, posing a significant barrier even against advancements in quantum computing.
+C-LCRYPT is a C++ encryption program that encrypts files at the binary level with RAM-based I/O. The operational combination ensures that encrypted data is highly resistant to unauthorized decryption and reverse engineering. Even with access to the C-LCRYPT tool, brute-force attacks are computationally infeasible due to the vast key space and resource requirements. The encryption method also poses a significant challenge to potential advancements in quantum computing.
 
-**Disclaimer**: This tool does not leave any identifiable signature or trace that could be linked back to the tool or its author. The resulting encryption cannot be analyzed or reverse-engineered to understand the algorithm's nature without access to the program's source code.
+**Disclaimer**: C-LCRYPT does not embed any identifiable signature or trace that could be linked back to the tool or its author. The encryption algorithm is designed to be opaque, making it difficult to analyze or reverse-engineer without access to the source code.
 
 ### Installation & Run
 ```
 git clone https://github.com/Locotir/C-LCRYPT
 cd C-LCRYPT
-sudo pacman -Syu gcc openssl boost zlib zstd libsodium
-g++ -std=c++17 -O3 -pipe -flto=$(nproc) -funroll-loops -fomit-frame-pointer -fno-plt -ffast-math -o C-LCRYPT C-LCRYPT.cpp -pthread -lcrypto -lz -lboost_iostreams -lzstd -lsodium
+sudo pacman -Syu gcc base-devel
+g++ -std=c++17 -O3 -pipe -flto=$(nproc) -funroll-loops -fomit-frame-pointer -fno-plt -ffast-math -o C-LCRYPT C-LCRYPT.cpp -fopenmp
 ./C-LCRYPT
 ```
 
@@ -32,26 +32,24 @@ Options:
   -d <target>       Decrypt the specified file/folder  
   -p <padding>      Specify the padding (0-∞)  
   -P <password>     Specify the password <Plain/File>  
-  -z                Disable compression during encryption/decryption  
   --version         Show the current installed version  
   -h                Display this help message  
 
 Examples:  
   ./C-LCRYPT -e target -p 10 -P my_password  
   ./C-LCRYPT -d target -p 10 -P my_password  
-  ./C-LCRYPT -e target -p 10 -P my_password -z  (Disable compression)  
 
 If executed without arguments, interactive mode will start.  
 ```
 
-### I take NO responsibility in misuse
-This program is provided for educational and research purposes only. The user assumes all responsibility for the use of the program. The developer is not responsible for any misuse, damage or problems caused by the program. It is strongly recommended to use this software in an ethical and legal manner.
+### Responsibility
+The developer of C-LCRYPT assumes no responsibility for any misuse, damage, or issues arising from the use of this software. C-LCRYPT is provided solely for educational and research purposes. Users are fully responsible for ensuring their use of the software complies with all applicable laws and ethical standards.
 
 # Program Operation
 > [!NOTE]
 > **[@]** Shuffle each Byte     
 > **[@]** Reverse Binary Chain         
-> **[@]** Fill with n bits between each original bit            
+> **[@]** Bit Padding           
 > **[@]** Substitute each byte with decimal Table (0-255):Psswd randomized           
 > **[@]** XOR Key unique string applied as long as entire file bit string
 
